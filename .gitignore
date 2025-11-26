@@ -39,9 +39,10 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+tests/fixtures/output/
 
-# Models (large files)
-models/*.pth
+# Models (optional large files - .torchscript is included in repo)
+# models/*.pth
 
 # ffmpeg (bundled binary)
 ffmpeg/ffmpeg.exe

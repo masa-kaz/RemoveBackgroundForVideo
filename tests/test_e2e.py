@@ -3,11 +3,12 @@
 
 実際の動画ファイルを使用した統合テスト。
 テスト動画: tests/fixtures/TestVideo.mov, TestVideo.mp4
+出力先: tests/fixtures/output/ (gitignore対象)
 """
 
 import os
+import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,21 @@ from src.utils import get_device_info, is_supported_video
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 TEST_VIDEO_MOV = FIXTURES_DIR / "TestVideo.mov"
 TEST_VIDEO_MP4 = FIXTURES_DIR / "TestVideo.mp4"
+
+# E2Eテスト出力先ディレクトリ（gitignore対象）
+OUTPUT_DIR = FIXTURES_DIR / "output"
+
+
+def ensure_output_dir() -> Path:
+    """出力ディレクトリを作成し、パスを返す"""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    return OUTPUT_DIR
+
+
+def get_output_path(name: str) -> Path:
+    """出力ファイルのパスを取得（既存ファイルは上書き）"""
+    ensure_output_dir()
+    return OUTPUT_DIR / name
 
 
 class TestFixturesExist:
@@ -149,18 +165,17 @@ class TestFullProcessingE2E:
         model.load()
         processor = VideoProcessor(model)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_mp4_nobg.mov")
 
-            # 処理実行
-            result = processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-            )
+        # 処理実行（既存ファイルは上書き）
+        result = processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+        )
 
-            # 出力ファイルが生成されていること
-            assert os.path.exists(result)
-            assert os.path.getsize(result) > 0
+        # 出力ファイルが生成されていること
+        assert os.path.exists(result)
+        assert os.path.getsize(result) > 0
 
     def test_process_mov_video(self):
         """MOV動画を処理できること"""
@@ -171,18 +186,17 @@ class TestFullProcessingE2E:
         model.load()
         processor = VideoProcessor(model)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_mov_nobg.mov")
 
-            # 処理実行
-            result = processor.process(
-                input_path=str(TEST_VIDEO_MOV),
-                output_path=output_path,
-            )
+        # 処理実行（既存ファイルは上書き）
+        result = processor.process(
+            input_path=str(TEST_VIDEO_MOV),
+            output_path=str(output_path),
+        )
 
-            # 出力ファイルが生成されていること
-            assert os.path.exists(result)
-            assert os.path.getsize(result) > 0
+        # 出力ファイルが生成されていること
+        assert os.path.exists(result)
+        assert os.path.getsize(result) > 0
 
     def test_progress_callback_called(self):
         """進捗コールバックが呼び出されること"""
@@ -198,21 +212,20 @@ class TestFullProcessingE2E:
         def on_progress(current, total):
             progress_calls.append((current, total))
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_progress_nobg.mov")
 
-            processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-                progress_callback=on_progress,
-            )
+        processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+            progress_callback=on_progress,
+        )
 
-            # 進捗コールバックが呼び出されていること
-            assert len(progress_calls) > 0
+        # 進捗コールバックが呼び出されていること
+        assert len(progress_calls) > 0
 
-            # 最後のコールバックでcurrentとtotalが一致すること
-            last_call = progress_calls[-1]
-            assert last_call[0] == last_call[1]
+        # 最後のコールバックでcurrentとtotalが一致すること
+        last_call = progress_calls[-1]
+        assert last_call[0] == last_call[1]
 
 
 @pytest.mark.skipif(
@@ -269,33 +282,32 @@ class TestOutputValidation:
         model.load()
         processor = VideoProcessor(model)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_prores_nobg.mov")
 
-            processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-            )
+        processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+        )
 
-            # コーデック情報を取得
-            info = self._get_video_codec_info(output_path)
+        # コーデック情報を取得
+        info = self._get_video_codec_info(str(output_path))
 
-            # 動画ストリームを探す
-            video_stream = None
-            for stream in info.get("streams", []):
-                if stream.get("codec_type") == "video":
-                    video_stream = stream
-                    break
+        # 動画ストリームを探す
+        video_stream = None
+        for stream in info.get("streams", []):
+            if stream.get("codec_type") == "video":
+                video_stream = stream
+                break
 
-            assert video_stream is not None, "動画ストリームが見つかりません"
+        assert video_stream is not None, "動画ストリームが見つかりません"
 
-            # ProRes 4444 (prores profile 4) であることを確認
-            codec_name = video_stream.get("codec_name", "")
-            assert codec_name == "prores", f"コーデックがProResではありません: {codec_name}"
+        # ProRes 4444 (prores profile 4) であることを確認
+        codec_name = video_stream.get("codec_name", "")
+        assert codec_name == "prores", f"コーデックがProResではありません: {codec_name}"
 
-            # プロファイルが4444であること（profile=4）
-            profile = video_stream.get("profile", "")
-            assert "4444" in profile, f"ProRes 4444ではありません: {profile}"
+        # プロファイルが4444であること（profile=4）
+        profile = video_stream.get("profile", "")
+        assert "4444" in profile, f"ProRes 4444ではありません: {profile}"
 
     def test_output_has_alpha_channel(self):
         """出力がアルファチャンネルを持つこと"""
@@ -306,31 +318,30 @@ class TestOutputValidation:
         model.load()
         processor = VideoProcessor(model)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_alpha_nobg.mov")
 
-            processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-            )
+        processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+        )
 
-            # コーデック情報を取得
-            info = self._get_video_codec_info(output_path)
+        # コーデック情報を取得
+        info = self._get_video_codec_info(str(output_path))
 
-            # 動画ストリームを探す
-            video_stream = None
-            for stream in info.get("streams", []):
-                if stream.get("codec_type") == "video":
-                    video_stream = stream
-                    break
+        # 動画ストリームを探す
+        video_stream = None
+        for stream in info.get("streams", []):
+            if stream.get("codec_type") == "video":
+                video_stream = stream
+                break
 
-            assert video_stream is not None, "動画ストリームが見つかりません"
+        assert video_stream is not None, "動画ストリームが見つかりません"
 
-            # ピクセルフォーマットがアルファを含むこと
-            pix_fmt = video_stream.get("pix_fmt", "")
-            # ProRes 4444のアルファ付きフォーマット
-            assert "a" in pix_fmt or "alpha" in pix_fmt.lower(), \
-                f"アルファチャンネルがありません: {pix_fmt}"
+        # ピクセルフォーマットがアルファを含むこと
+        pix_fmt = video_stream.get("pix_fmt", "")
+        # ProRes 4444のアルファ付きフォーマット
+        assert "a" in pix_fmt or "alpha" in pix_fmt.lower(), \
+            f"アルファチャンネルがありません: {pix_fmt}"
 
     def test_output_dimensions_match_input(self):
         """出力の解像度が入力と一致すること"""
@@ -344,22 +355,21 @@ class TestOutputValidation:
         # 入力動画の情報を取得
         input_info = get_video_info(str(TEST_VIDEO_MP4))
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_dimensions_nobg.mov")
 
-            processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-            )
+        processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+        )
 
-            # 出力動画の情報を取得
-            output_info = get_video_info(output_path)
+        # 出力動画の情報を取得
+        output_info = get_video_info(str(output_path))
 
-            # 解像度が一致すること
-            assert output_info.width == input_info.width, \
-                f"幅が一致しません: 入力={input_info.width}, 出力={output_info.width}"
-            assert output_info.height == input_info.height, \
-                f"高さが一致しません: 入力={input_info.height}, 出力={output_info.height}"
+        # 解像度が一致すること
+        assert output_info.width == input_info.width, \
+            f"幅が一致しません: 入力={input_info.width}, 出力={output_info.width}"
+        assert output_info.height == input_info.height, \
+            f"高さが一致しません: 入力={input_info.height}, 出力={output_info.height}"
 
     def test_output_fps_matches_input(self):
         """出力のFPSが入力と一致すること"""
@@ -373,20 +383,19 @@ class TestOutputValidation:
         # 入力動画の情報を取得
         input_info = get_video_info(str(TEST_VIDEO_MP4))
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_fps_nobg.mov")
 
-            processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-            )
+        processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+        )
 
-            # 出力動画の情報を取得
-            output_info = get_video_info(output_path)
+        # 出力動画の情報を取得
+        output_info = get_video_info(str(output_path))
 
-            # FPSが一致すること（小数点以下の誤差を許容）
-            assert abs(output_info.fps - input_info.fps) < 0.1, \
-                f"FPSが一致しません: 入力={input_info.fps}, 出力={output_info.fps}"
+        # FPSが一致すること（小数点以下の誤差を許容）
+        assert abs(output_info.fps - input_info.fps) < 0.1, \
+            f"FPSが一致しません: 入力={input_info.fps}, 出力={output_info.fps}"
 
     def test_output_frame_count_matches_input(self):
         """出力のフレーム数が入力とほぼ一致すること"""
@@ -400,19 +409,18 @@ class TestOutputValidation:
         # 入力動画の情報を取得
         input_info = get_video_info(str(TEST_VIDEO_MP4))
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = os.path.join(temp_dir, "output.mov")
+        output_path = get_output_path("TestVideo_framecount_nobg.mov")
 
-            processor.process(
-                input_path=str(TEST_VIDEO_MP4),
-                output_path=output_path,
-            )
+        processor.process(
+            input_path=str(TEST_VIDEO_MP4),
+            output_path=str(output_path),
+        )
 
-            # 出力動画の情報を取得
-            output_info = get_video_info(output_path)
+        # 出力動画の情報を取得
+        output_info = get_video_info(str(output_path))
 
-            # フレーム数がほぼ一致すること（1フレームの誤差を許容）
-            # OpenCVとffmpegの間でフレームカウントに微小な差が生じることがある
-            frame_diff = abs(output_info.frame_count - input_info.frame_count)
-            assert frame_diff <= 1, \
-                f"フレーム数の差が大きすぎます: 入力={input_info.frame_count}, 出力={output_info.frame_count}, 差={frame_diff}"
+        # フレーム数がほぼ一致すること（1フレームの誤差を許容）
+        # OpenCVとffmpegの間でフレームカウントに微小な差が生じることがある
+        frame_diff = abs(output_info.frame_count - input_info.frame_count)
+        assert frame_diff <= 1, \
+            f"フレーム数の差が大きすぎます: 入力={input_info.frame_count}, 出力={output_info.frame_count}, 差={frame_diff}"
