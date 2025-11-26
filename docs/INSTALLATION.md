@@ -1,5 +1,29 @@
 # インストール手順
 
+## クイックスタート（ビルド済みバイナリ）
+
+最も簡単な方法は、ビルド済みのバイナリをダウンロードすることです。
+
+### ダウンロード
+
+[GitHub Releases](https://github.com/masa-kaz/RemoveBackgroundForVideo/releases) から、お使いの環境に合ったファイルをダウンロードしてください：
+
+| ファイル | 対象環境 | 備考 |
+|---------|---------|------|
+| `BackgroundRemover_Windows_GPU.zip` | Windows + NVIDIA GPU | 高速処理（推奨） |
+| `BackgroundRemover_Windows_CPU.zip` | Windows（GPU不要） | 軽量版、処理は低速 |
+| `BackgroundRemover_macOS.zip` | macOS (Apple Silicon) | M1/M2 Mac向け |
+
+### インストール手順
+
+1. ZIPファイルを解凍
+2. **Windows**: `BackgroundRemover_GPU.exe` または `BackgroundRemover_CPU.exe` を実行
+3. **macOS**: `BackgroundRemover_Mac.app` をダブルクリック（初回は右クリック→「開く」）
+
+**注意**: macOSでは初回起動時に「開発元を確認できない」という警告が表示される場合があります。その場合は、右クリック→「開く」を選択してください。
+
+---
+
 ## 1. 開発環境のセットアップ
 
 ### 前提条件
