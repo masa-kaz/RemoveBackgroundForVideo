@@ -100,6 +100,7 @@ pyinstaller ^
     --name "BackgroundRemover_CPU" ^
     --onedir ^
     --windowed ^
+    --icon "assets\icon.ico" ^
     --add-data "models;models" ^
     --add-data "src;src" ^
     --add-data "ffmpeg;ffmpeg" ^
@@ -112,8 +113,10 @@ pyinstaller ^
     --hidden-import "cv2" ^
     --hidden-import "PIL" ^
     --hidden-import "numpy" ^
+    --hidden-import "tkinterdnd2" ^
     --collect-all "torch" ^
     --collect-all "torchvision" ^
+    --collect-all "tkinterdnd2" ^
     run_app.py
 
 REM 一時ファイルを削除

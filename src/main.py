@@ -7,6 +7,13 @@ from pathlib import Path
 from tkinter import Tk, Label, Button, Frame, StringVar, filedialog, messagebox
 from tkinter.ttk import Progressbar, Style
 
+# tkinterdnd2のインポート（ドラッグ＆ドロップ対応）
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
+
 from rvm_model import RVMModel, download_model
 from video_processor import VideoProcessor, get_video_info, ProcessingCancelled
 from utils import (
@@ -77,6 +84,28 @@ class BackgroundRemoverApp:
         device_label = Label(main_frame, text=device_text, fg=device_color)
         device_label.pack(pady=(0, 15))
 
+        # ドロップゾーン（ファイルをドラッグ＆ドロップできるエリア）
+        self.drop_frame = Frame(
+            main_frame,
+            relief="groove",
+            borderwidth=2,
+            bg="#f0f0f0",
+        )
+        self.drop_frame.pack(fill="x", pady=10, ipady=20)
+
+        self.drop_label = Label(
+            self.drop_frame,
+            text="ここに動画ファイルをドラッグ＆ドロップ\n(.mp4, .mov, .m4v)",
+            bg="#f0f0f0",
+            fg="#666666",
+            font=("Helvetica", 10),
+        )
+        self.drop_label.pack(expand=True)
+
+        # ドラッグ＆ドロップが利用可能な場合は有効化
+        if HAS_DND:
+            self._setup_drag_and_drop()
+
         # 入力ファイル選択（リサイズに追従）
         input_frame = Frame(main_frame)
         input_frame.pack(fill="x", pady=5)
@@ -146,6 +175,101 @@ class BackgroundRemoverApp:
         )
         self.cancel_button.pack(side="left", padx=10)
 
+    def _setup_drag_and_drop(self) -> None:
+        """ドラッグ＆ドロップを設定する"""
+        # ドロップゾーンにドラッグ＆ドロップを設定
+        self.drop_frame.drop_target_register(DND_FILES)
+        self.drop_frame.dnd_bind("<<Drop>>", self._on_drop)
+        self.drop_frame.dnd_bind("<<DragEnter>>", self._on_drag_enter)
+        self.drop_frame.dnd_bind("<<DragLeave>>", self._on_drag_leave)
+
+        # ラベルにもドラッグ＆ドロップを設定（ラベル上でもドロップできるように）
+        self.drop_label.drop_target_register(DND_FILES)
+        self.drop_label.dnd_bind("<<Drop>>", self._on_drop)
+        self.drop_label.dnd_bind("<<DragEnter>>", self._on_drag_enter)
+        self.drop_label.dnd_bind("<<DragLeave>>", self._on_drag_leave)
+
+    def _on_drop(self, event) -> None:
+        """ファイルがドロップされたときの処理
+
+        Args:
+            event: ドロップイベント
+        """
+        # ドロップされたファイルパスを取得
+        # 複数ファイルの場合はスペース区切り、パスにスペースが含まれる場合は{}で囲まれる
+        data = event.data
+
+        # パスの解析
+        if data.startswith("{"):
+            # {path}形式（スペースを含むパス）
+            path = data.strip("{}")
+        else:
+            # 複数ファイルの場合は最初のファイルのみ使用
+            path = data.split()[0] if " " in data else data
+
+        # ドロップゾーンの色を元に戻す
+        self._reset_drop_zone()
+
+        # ファイルを設定
+        self._set_input_file(path)
+
+    def _on_drag_enter(self, event) -> None:
+        """ドラッグがドロップゾーンに入ったときの処理"""
+        self.drop_frame.config(bg="#d0e8ff")
+        self.drop_label.config(bg="#d0e8ff", fg="#0066cc")
+
+    def _on_drag_leave(self, event) -> None:
+        """ドラッグがドロップゾーンから出たときの処理"""
+        self._reset_drop_zone()
+
+    def _reset_drop_zone(self) -> None:
+        """ドロップゾーンを初期状態に戻す"""
+        self.drop_frame.config(bg="#f0f0f0")
+        self.drop_label.config(bg="#f0f0f0", fg="#666666")
+
+    def _set_input_file(self, path: str) -> None:
+        """入力ファイルを設定する
+
+        Args:
+            path: ファイルパス
+        """
+        if not path:
+            return
+
+        if not is_supported_video(path):
+            messagebox.showerror(
+                "エラー",
+                f"サポートされていない形式です。\n"
+                f"対応形式: {', '.join(SUPPORTED_INPUT_EXTENSIONS)}",
+            )
+            return
+
+        self.input_path = path
+        self.input_var.set(Path(path).name)
+
+        # 出力パスを自動設定
+        self.output_path = get_output_path(path)
+        self.output_var.set(Path(self.output_path).name)
+
+        # 動画情報を表示
+        try:
+            info = get_video_info(path)
+            self.info_var.set(
+                f"{info.width}x{info.height} | {info.fps:.1f}fps | "
+                f"{format_time(info.duration)} ({info.frame_count}フレーム)"
+            )
+        except ValueError as e:
+            self.info_var.set(str(e))
+
+        # ドロップゾーンの表示を更新
+        self.drop_label.config(
+            text=f"選択済み: {Path(path).name}\n別のファイルをドロップして変更",
+            fg="#008800",
+        )
+
+        # 処理ボタンを有効化
+        self.process_button.config(state="normal")
+
     def _select_input(self) -> None:
         """入力ファイルを選択する"""
         filetypes = [
@@ -161,33 +285,7 @@ class BackgroundRemoverApp:
         )
 
         if path:
-            if not is_supported_video(path):
-                messagebox.showerror(
-                    "エラー",
-                    f"サポートされていない形式です。\n"
-                    f"対応形式: {', '.join(SUPPORTED_INPUT_EXTENSIONS)}",
-                )
-                return
-
-            self.input_path = path
-            self.input_var.set(Path(path).name)
-
-            # 出力パスを自動設定
-            self.output_path = get_output_path(path)
-            self.output_var.set(Path(self.output_path).name)
-
-            # 動画情報を表示
-            try:
-                info = get_video_info(path)
-                self.info_var.set(
-                    f"{info.width}x{info.height} | {info.fps:.1f}fps | "
-                    f"{format_time(info.duration)} ({info.frame_count}フレーム)"
-                )
-            except ValueError as e:
-                self.info_var.set(str(e))
-
-            # 処理ボタンを有効化
-            self.process_button.config(state="normal")
+            self._set_input_file(path)
 
     def _select_output(self) -> None:
         """出力先を選択する"""
@@ -340,7 +438,11 @@ class BackgroundRemoverApp:
 
 def main():
     """アプリケーションのエントリーポイント"""
-    root = Tk()
+    # tkinterdnd2が利用可能な場合はTkinterDnDを使用
+    if HAS_DND:
+        root = TkinterDnD.Tk()
+    else:
+        root = Tk()
     app = BackgroundRemoverApp(root)
     root.mainloop()
 

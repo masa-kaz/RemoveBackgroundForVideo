@@ -83,6 +83,29 @@ def function_name(param1: str, param2: int) -> bool:
 
 ---
 
+## ライブラリ追加時の注意事項
+
+新しいライブラリを追加する際は、以下のファイルすべてを確認・更新すること:
+
+1. **依存関係ファイル**
+   - `requirements.txt` - 本番用依存関係
+   - `requirements-dev.txt` - 開発用依存関係（テスト用ライブラリ等）
+
+2. **ビルドスクリプト**
+   - `build_mac.sh` - macOS版ビルド
+   - `build_gpu.bat` - Windows GPU版ビルド
+   - `build_cpu.bat` - Windows CPU版ビルド
+   - PyInstallerの `--hidden-import` や `--collect-all` が必要か確認
+
+3. **GitHub Actions**
+   - `.github/workflows/build.yml` - CI/CDビルドワークフロー
+
+4. **ドキュメント**
+   - `docs/INSTALLATION.md` - インストール手順
+   - `.claude/workspace/project_index/dependencies.json` - 依存関係インデックス
+
+---
+
 ## トークン効率化
 - プロジェクトインデックスを最大限活用
 - 不必要なファイル読み込みを避ける

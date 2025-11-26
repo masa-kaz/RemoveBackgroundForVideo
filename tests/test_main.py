@@ -536,3 +536,234 @@ class TestResponsiveDesign:
 
         # progressbarが存在すること
         assert hasattr(app, "progressbar")
+
+
+class TestDragAndDrop:
+    """ドラッグ＆ドロップ機能のテスト"""
+
+    @patch("src.main.get_device_info")
+    def test_drop_frame_exists(self, mock_get_device_info):
+        """ドロップゾーンが存在すること"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+
+        # drop_frameが存在すること
+        assert hasattr(app, "drop_frame")
+
+    @patch("src.main.get_device_info")
+    def test_drop_label_exists(self, mock_get_device_info):
+        """ドロップラベルが存在すること"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+
+        # drop_labelが存在すること
+        assert hasattr(app, "drop_label")
+
+    @patch("src.main.get_device_info")
+    @patch("src.main.is_supported_video")
+    @patch("src.main.get_output_path")
+    @patch("src.main.get_video_info")
+    def test_set_input_file_valid(
+        self,
+        mock_get_video_info,
+        mock_get_output_path,
+        mock_is_supported,
+        mock_get_device_info,
+    ):
+        """有効なファイルを設定した場合"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+        mock_is_supported.return_value = True
+        mock_get_output_path.return_value = "/path/to/video_nobg.mov"
+        mock_get_video_info.return_value = Mock(
+            width=1920, height=1080, fps=30.0, frame_count=900, duration=30.0
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+        app.input_var = MagicMock()
+        app.output_var = MagicMock()
+        app.info_var = MagicMock()
+        app.process_button = MagicMock()
+        app.drop_label = MagicMock()
+
+        app._set_input_file("/path/to/video.mp4")
+
+        assert app.input_path == "/path/to/video.mp4"
+        assert app.output_path == "/path/to/video_nobg.mov"
+        app.input_var.set.assert_called_with("video.mp4")
+        app.output_var.set.assert_called_with("video_nobg.mov")
+        app.process_button.config.assert_called_with(state="normal")
+
+    @patch("src.main.get_device_info")
+    @patch("src.main.is_supported_video")
+    @patch("src.main.messagebox")
+    def test_set_input_file_invalid(
+        self,
+        mock_messagebox,
+        mock_is_supported,
+        mock_get_device_info,
+    ):
+        """無効なファイルを設定した場合"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+        mock_is_supported.return_value = False
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+
+        app._set_input_file("/path/to/video.avi")
+
+        mock_messagebox.showerror.assert_called_once()
+        assert app.input_path == ""
+
+    @patch("src.main.get_device_info")
+    def test_set_input_file_empty(self, mock_get_device_info):
+        """空のパスを設定した場合"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+
+        app._set_input_file("")
+
+        # 何も変更されない
+        assert app.input_path == ""
+
+    @patch("src.main.get_device_info")
+    def test_reset_drop_zone(self, mock_get_device_info):
+        """ドロップゾーンのリセット"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+        app.drop_frame = MagicMock()
+        app.drop_label = MagicMock()
+
+        app._reset_drop_zone()
+
+        app.drop_frame.config.assert_called_with(bg="#f0f0f0")
+        app.drop_label.config.assert_called_with(bg="#f0f0f0", fg="#666666")
+
+    @patch("src.main.get_device_info")
+    def test_on_drag_enter(self, mock_get_device_info):
+        """ドラッグ進入時の表示変更"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+        app.drop_frame = MagicMock()
+        app.drop_label = MagicMock()
+
+        app._on_drag_enter(None)
+
+        app.drop_frame.config.assert_called_with(bg="#d0e8ff")
+        app.drop_label.config.assert_called_with(bg="#d0e8ff", fg="#0066cc")
+
+    @patch("src.main.get_device_info")
+    def test_on_drag_leave(self, mock_get_device_info):
+        """ドラッグ退出時の表示リセット"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+        app.drop_frame = MagicMock()
+        app.drop_label = MagicMock()
+
+        app._on_drag_leave(None)
+
+        # _reset_drop_zoneが呼ばれる
+        app.drop_frame.config.assert_called()
+        app.drop_label.config.assert_called()
+
+    @patch("src.main.get_device_info")
+    @patch("src.main.is_supported_video")
+    @patch("src.main.get_output_path")
+    @patch("src.main.get_video_info")
+    def test_on_drop_single_file(
+        self,
+        mock_get_video_info,
+        mock_get_output_path,
+        mock_is_supported,
+        mock_get_device_info,
+    ):
+        """単一ファイルのドロップ"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+        mock_is_supported.return_value = True
+        mock_get_output_path.return_value = "/path/to/video_nobg.mov"
+        mock_get_video_info.return_value = Mock(
+            width=1920, height=1080, fps=30.0, frame_count=900, duration=30.0
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+        app.input_var = MagicMock()
+        app.output_var = MagicMock()
+        app.info_var = MagicMock()
+        app.process_button = MagicMock()
+        app.drop_frame = MagicMock()
+        app.drop_label = MagicMock()
+
+        mock_event = Mock()
+        mock_event.data = "/path/to/video.mp4"
+
+        app._on_drop(mock_event)
+
+        assert app.input_path == "/path/to/video.mp4"
+
+    @patch("src.main.get_device_info")
+    @patch("src.main.is_supported_video")
+    @patch("src.main.get_output_path")
+    @patch("src.main.get_video_info")
+    def test_on_drop_file_with_braces(
+        self,
+        mock_get_video_info,
+        mock_get_output_path,
+        mock_is_supported,
+        mock_get_device_info,
+    ):
+        """波括弧で囲まれたパス（スペース含む）のドロップ"""
+        mock_get_device_info.return_value = Mock(
+            device="cpu", name="CPU", is_gpu=False, warning=None
+        )
+        mock_is_supported.return_value = True
+        mock_get_output_path.return_value = "/path/to/my video_nobg.mov"
+        mock_get_video_info.return_value = Mock(
+            width=1920, height=1080, fps=30.0, frame_count=900, duration=30.0
+        )
+
+        mock_root = MagicMock()
+        app = BackgroundRemoverApp(mock_root)
+        app.input_var = MagicMock()
+        app.output_var = MagicMock()
+        app.info_var = MagicMock()
+        app.process_button = MagicMock()
+        app.drop_frame = MagicMock()
+        app.drop_label = MagicMock()
+
+        mock_event = Mock()
+        mock_event.data = "{/path/to/my video.mp4}"
+
+        app._on_drop(mock_event)
+
+        assert app.input_path == "/path/to/my video.mp4"

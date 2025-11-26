@@ -108,6 +108,7 @@ pyinstaller \
     --name "BackgroundRemover_Mac" \
     --onedir \
     --windowed \
+    --icon "assets/icon.icns" \
     --add-data "models:models" \
     --add-data "src:src" \
     --add-binary "${FFMPEG_PATH}:ffmpeg" \
@@ -120,8 +121,10 @@ pyinstaller \
     --hidden-import "cv2" \
     --hidden-import "PIL" \
     --hidden-import "numpy" \
+    --hidden-import "tkinterdnd2" \
     --collect-all "torch" \
     --collect-all "torchvision" \
+    --collect-all "tkinterdnd2" \
     --osx-bundle-identifier "com.internal.backgroundremover" \
     run_app.py
 
