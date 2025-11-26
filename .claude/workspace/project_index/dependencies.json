@@ -1,0 +1,87 @@
+{
+  "python_version": ">=3.10",
+  "production_dependencies": {
+    "file": "requirements.txt",
+    "packages": [
+      {
+        "name": "torch",
+        "version": ">=2.0.0",
+        "description": "PyTorchディープラーニングフレームワーク",
+        "note": "CUDA版とCPU版でインストール方法が異なる"
+      },
+      {
+        "name": "torchvision",
+        "version": ">=0.15.0",
+        "description": "PyTorch画像処理ユーティリティ"
+      },
+      {
+        "name": "opencv-python",
+        "version": ">=4.8.0",
+        "description": "動画読み込み・フレーム抽出"
+      },
+      {
+        "name": "numpy",
+        "version": ">=1.24.0",
+        "description": "数値計算ライブラリ"
+      },
+      {
+        "name": "Pillow",
+        "version": ">=10.0.0",
+        "description": "画像処理ライブラリ"
+      }
+    ]
+  },
+  "development_dependencies": {
+    "file": "requirements-dev.txt",
+    "includes": "requirements.txt",
+    "additional_packages": [
+      {
+        "name": "pytest",
+        "version": ">=7.4.0",
+        "description": "テストフレームワーク"
+      },
+      {
+        "name": "pytest-cov",
+        "version": ">=4.1.0",
+        "description": "カバレッジ計測"
+      },
+      {
+        "name": "pyinstaller",
+        "version": ">=6.0.0",
+        "description": "exe化ツール"
+      }
+    ]
+  },
+  "external_tools": [
+    {
+      "name": "ffmpeg",
+      "description": "動画エンコード（ProRes 4444出力に必須）",
+      "location": "ffmpeg/ffmpeg.exe または システムPATH",
+      "download_url": "https://ffmpeg.org/download.html"
+    }
+  ],
+  "ai_models": [
+    {
+      "name": "rvm_mobilenetv3.torchscript",
+      "description": "RobustVideoMatting MobileNetV3モデル（TorchScript形式）",
+      "size": "約15MB",
+      "location": "models/",
+      "download_url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.torchscript",
+      "license": "GPL-3.0",
+      "note": "リポジトリに同梱済み"
+    },
+    {
+      "name": "rvm_resnet50.torchscript",
+      "description": "RobustVideoMatting ResNet50モデル（オプション、高精度、TorchScript形式）",
+      "size": "約100MB",
+      "location": "models/",
+      "download_url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_resnet50_fp32.torchscript",
+      "license": "GPL-3.0"
+    }
+  ],
+  "pytorch_installation": {
+    "windows_gpu": "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118",
+    "macos_apple_silicon": "pip install torch torchvision",
+    "cpu_only": "pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu"
+  }
+}

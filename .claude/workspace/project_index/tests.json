@@ -1,0 +1,107 @@
+{
+  "test_framework": "pytest",
+  "test_directory": "tests/",
+  "config_file": "pytest.ini",
+  "fixtures_directory": "tests/fixtures/",
+  "test_files": [
+    {
+      "file": "tests/test_main.py",
+      "description": "main.py (GUI)のユニットテスト",
+      "test_classes": [
+        "TestBackgroundRemoverAppInit: 初期化のテスト",
+        "TestSelectInput: 入力ファイル選択のテスト",
+        "TestSelectOutput: 出力先選択のテスト",
+        "TestStartProcessing: 処理開始のテスト",
+        "TestCancelProcessing: キャンセル処理のテスト",
+        "TestProgressCallbacks: 進捗コールバックのテスト",
+        "TestCompletionCallbacks: 完了/エラー/キャンセルコールバックのテスト",
+        "TestShowGpuWarning: GPU警告表示のテスト",
+        "TestResponsiveDesign: レスポンシブデザインのテスト"
+      ],
+      "test_count": 29
+    },
+    {
+      "file": "tests/test_utils.py",
+      "description": "utils.pyのユニットテスト",
+      "test_classes": [
+        "TestGetDevice: get_device関数のテスト",
+        "TestGetDeviceInfo: get_device_info関数のテスト",
+        "TestIsSupportedVideo: is_supported_video関数のテスト",
+        "TestGetOutputPath: get_output_path関数のテスト",
+        "TestEnsureDirectory: ensure_directory関数のテスト",
+        "TestGetFileSizeMb: get_file_size_mb関数のテスト",
+        "TestFormatTime: format_time関数のテスト",
+        "TestSupportedExtensions: 定数のテスト"
+      ],
+      "test_count": 37
+    },
+    {
+      "file": "tests/test_rvm_model.py",
+      "description": "rvm_model.pyのユニットテスト",
+      "test_classes": [
+        "TestRVMModel: RVMModelクラスの基本テスト",
+        "TestRVMModelWithMock: モックを使用したRVMModelテスト",
+        "TestDownloadModel: download_model関数のテスト",
+        "TestModelURLs: MODEL_URLS定数のテスト"
+      ],
+      "test_count": 18
+    },
+    {
+      "file": "tests/test_video_processor.py",
+      "description": "video_processor.pyのユニットテスト",
+      "test_classes": [
+        "TestVideoInfo: VideoInfoデータクラスのテスト",
+        "TestGetVideoInfo: get_video_info関数のテスト",
+        "TestFindFfmpeg: find_ffmpeg関数のテスト",
+        "TestCheckAudioStream: 音声ストリーム確認のテスト",
+        "TestVideoProcessor: VideoProcessorクラスのテスト",
+        "TestVideoProcessorCancel: キャンセル機能のテスト",
+        "TestVideoProcessorCreateRgbaImage: RGBA画像生成のテスト",
+        "TestVideoProcessorWithMock: モックを使用した統合テスト"
+      ],
+      "test_count": 20
+    },
+    {
+      "file": "tests/test_build_scripts.py",
+      "description": "ビルドスクリプトの整合性テスト",
+      "test_classes": [
+        "TestBuildScriptsExist: ビルドスクリプトの存在確認",
+        "TestModelFileConsistency: モデルファイル名の整合性テスト",
+        "TestBuildScriptContent: ビルドスクリプト内容の検証"
+      ],
+      "test_count": 22
+    },
+    {
+      "file": "tests/test_e2e.py",
+      "description": "E2E（End-to-End）テスト",
+      "test_classes": [
+        "TestFixturesExist: テスト用動画ファイルの存在確認",
+        "TestVideoInfoE2E: 動画情報取得のE2Eテスト",
+        "TestDeviceDetection: デバイス検出のE2Eテスト",
+        "TestModelLoadingE2E: モデル読み込みのE2Eテスト",
+        "TestFullProcessingE2E: フル処理のE2Eテスト（slow）",
+        "TestOutputValidation: 出力ファイル検証のE2Eテスト（slow）"
+      ],
+      "test_count": 19,
+      "markers": ["slow"]
+    }
+  ],
+  "fixtures": [
+    {
+      "file": "tests/fixtures/TestVideo.mov",
+      "description": "MOV形式のテスト動画"
+    },
+    {
+      "file": "tests/fixtures/TestVideo.mp4",
+      "description": "MP4形式のテスト動画"
+    }
+  ],
+  "commands": {
+    "run_all": "pytest",
+    "run_verbose": "pytest -v",
+    "run_with_coverage": "pytest --cov=src",
+    "run_without_slow": "pytest -m 'not slow'",
+    "run_only_e2e": "pytest tests/test_e2e.py"
+  },
+  "total_test_count": 145
+}
