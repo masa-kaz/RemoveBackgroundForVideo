@@ -57,6 +57,23 @@ jobs:
           Copy-Item "ffmpeg_temp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" "ffmpeg\ffmpeg.exe"
           Remove-Item -Recurse -Force "ffmpeg_temp", "ffmpeg.zip"
 
+      - name: Create entry point script
+        run: |
+          @"
+          # -*- coding: utf-8 -*-
+          """PyInstaller用エントリーポイント"""
+          import sys
+          from pathlib import Path
+
+          # srcディレクトリをパスに追加
+          sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+          from main import main
+
+          if __name__ == "__main__":
+              main()
+          "@ | Out-File -FilePath run_app.py -Encoding utf8
+
       - name: Build with PyInstaller
         run: |
           pyinstaller `
@@ -64,7 +81,12 @@ jobs:
             --onedir `
             --windowed `
             --add-data "models;models" `
+            --add-data "src;src" `
             --add-data "ffmpeg;ffmpeg" `
+            --hidden-import "tkinter" `
+            --hidden-import "tkinter.ttk" `
+            --hidden-import "tkinter.filedialog" `
+            --hidden-import "tkinter.messagebox" `
             --hidden-import "torch" `
             --hidden-import "torchvision" `
             --hidden-import "cv2" `
@@ -72,7 +94,7 @@ jobs:
             --hidden-import "numpy" `
             --collect-all "torch" `
             --collect-all "torchvision" `
-            src\main.py
+            run_app.py
 
       - name: Create ZIP archive
         run: |
@@ -122,6 +144,23 @@ jobs:
           Copy-Item "ffmpeg_temp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" "ffmpeg\ffmpeg.exe"
           Remove-Item -Recurse -Force "ffmpeg_temp", "ffmpeg.zip"
 
+      - name: Create entry point script
+        run: |
+          @"
+          # -*- coding: utf-8 -*-
+          """PyInstaller用エントリーポイント"""
+          import sys
+          from pathlib import Path
+
+          # srcディレクトリをパスに追加
+          sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+          from main import main
+
+          if __name__ == "__main__":
+              main()
+          "@ | Out-File -FilePath run_app.py -Encoding utf8
+
       - name: Build with PyInstaller
         run: |
           pyinstaller `
@@ -129,7 +168,12 @@ jobs:
             --onedir `
             --windowed `
             --add-data "models;models" `
+            --add-data "src;src" `
             --add-data "ffmpeg;ffmpeg" `
+            --hidden-import "tkinter" `
+            --hidden-import "tkinter.ttk" `
+            --hidden-import "tkinter.filedialog" `
+            --hidden-import "tkinter.messagebox" `
             --hidden-import "torch" `
             --hidden-import "torchvision" `
             --hidden-import "cv2" `
@@ -137,7 +181,7 @@ jobs:
             --hidden-import "numpy" `
             --collect-all "torch" `
             --collect-all "torchvision" `
-            src\main.py
+            run_app.py
 
       - name: Create ZIP archive
         run: |
@@ -182,6 +226,23 @@ jobs:
       - name: Install ffmpeg
         run: brew install ffmpeg
 
+      - name: Create entry point script
+        run: |
+          cat > run_app.py << 'EOF'
+          # -*- coding: utf-8 -*-
+          """PyInstaller用エントリーポイント"""
+          import sys
+          from pathlib import Path
+
+          # srcディレクトリをパスに追加
+          sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+          from main import main
+
+          if __name__ == "__main__":
+              main()
+          EOF
+
       - name: Build with PyInstaller
         run: |
           FFMPEG_PATH=$(which ffmpeg)
@@ -190,7 +251,12 @@ jobs:
             --onedir \
             --windowed \
             --add-data "models:models" \
+            --add-data "src:src" \
             --add-binary "${FFMPEG_PATH}:ffmpeg" \
+            --hidden-import "tkinter" \
+            --hidden-import "tkinter.ttk" \
+            --hidden-import "tkinter.filedialog" \
+            --hidden-import "tkinter.messagebox" \
             --hidden-import "torch" \
             --hidden-import "torchvision" \
             --hidden-import "cv2" \
@@ -199,7 +265,7 @@ jobs:
             --collect-all "torch" \
             --collect-all "torchvision" \
             --osx-bundle-identifier "com.internal.backgroundremover" \
-            src/main.py
+            run_app.py
 
       - name: Create .app bundle
         run: |

@@ -7,9 +7,9 @@ from pathlib import Path
 from tkinter import Tk, Label, Button, Frame, StringVar, filedialog, messagebox
 from tkinter.ttk import Progressbar, Style
 
-from .rvm_model import RVMModel, download_model
-from .video_processor import VideoProcessor, get_video_info, ProcessingCancelled
-from .utils import (
+from rvm_model import RVMModel, download_model
+from video_processor import VideoProcessor, get_video_info, ProcessingCancelled
+from utils import (
     get_device_info,
     get_output_path,
     is_supported_video,

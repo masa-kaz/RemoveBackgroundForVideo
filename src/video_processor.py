@@ -14,8 +14,8 @@ import torch
 from PIL import Image
 from torchvision.transforms.functional import to_tensor
 
-from .rvm_model import RVMModel
-from .utils import get_output_path, is_supported_video, ensure_directory
+from rvm_model import RVMModel
+from utils import get_output_path, is_supported_video, ensure_directory
 
 
 class ProcessingCancelled(Exception):

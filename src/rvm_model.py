@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from .utils import get_device
+from utils import get_device
 
 # モデルのダウンロードURL（TorchScript形式）
 MODEL_URLS = {

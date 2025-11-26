@@ -62,9 +62,36 @@ if not exist "ffmpeg\ffmpeg.exe" (
     exit /b 1
 )
 
+REM 相対インポートのチェック
+echo.
+echo 相対インポートをチェック中...
+python scripts\check_relative_imports.py
+if errorlevel 1 (
+    echo [エラー] 相対インポートが検出されました。絶対インポートに修正してください。
+    pause
+    exit /b 1
+)
+
 REM 既存のビルドをクリーンアップ
 if exist "dist\BackgroundRemover_CPU" rmdir /s /q "dist\BackgroundRemover_CPU"
 if exist "build" rmdir /s /q "build"
+
+REM エントリーポイントスクリプトを生成
+echo エントリーポイントスクリプトを生成中...
+(
+echo # -*- coding: utf-8 -*-
+echo """PyInstaller用エントリーポイント"""
+echo import sys
+echo from pathlib import Path
+echo.
+echo # srcディレクトリをパスに追加
+echo sys.path.insert^(0, str^(Path^(__file__^).parent / "src"^)^)
+echo.
+echo from main import main
+echo.
+echo if __name__ == "__main__":
+echo     main^(^)
+) > run_app.py
 
 REM PyInstallerでビルド
 echo.
@@ -74,7 +101,12 @@ pyinstaller ^
     --onedir ^
     --windowed ^
     --add-data "models;models" ^
+    --add-data "src;src" ^
     --add-data "ffmpeg;ffmpeg" ^
+    --hidden-import "tkinter" ^
+    --hidden-import "tkinter.ttk" ^
+    --hidden-import "tkinter.filedialog" ^
+    --hidden-import "tkinter.messagebox" ^
     --hidden-import "torch" ^
     --hidden-import "torchvision" ^
     --hidden-import "cv2" ^
@@ -82,7 +114,10 @@ pyinstaller ^
     --hidden-import "numpy" ^
     --collect-all "torch" ^
     --collect-all "torchvision" ^
-    src\main.py
+    run_app.py
+
+REM 一時ファイルを削除
+del /f run_app.py 2>nul
 
 echo.
 echo ========================================

@@ -70,10 +70,36 @@ fi
 FFMPEG_PATH=$(which ffmpeg)
 FFMPEG_DIR=$(dirname "$FFMPEG_PATH")
 
+# 相対インポートのチェック
+echo
+echo "相対インポートをチェック中..."
+python scripts/check_relative_imports.py
+if [ $? -ne 0 ]; then
+    echo "[エラー] 相対インポートが検出されました。絶対インポートに修正してください。"
+    exit 1
+fi
+
 # 既存のビルドをクリーンアップ
 rm -rf dist/BackgroundRemover_Mac.app
 rm -rf dist/BackgroundRemover_Mac
 rm -rf build
+
+# エントリーポイントスクリプトを生成
+echo "エントリーポイントスクリプトを生成中..."
+cat > run_app.py << 'ENTRY_EOF'
+# -*- coding: utf-8 -*-
+"""PyInstaller用エントリーポイント"""
+import sys
+from pathlib import Path
+
+# srcディレクトリをパスに追加
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from main import main
+
+if __name__ == "__main__":
+    main()
+ENTRY_EOF
 
 # PyInstallerでビルド
 echo
@@ -83,7 +109,12 @@ pyinstaller \
     --onedir \
     --windowed \
     --add-data "models:models" \
+    --add-data "src:src" \
     --add-binary "${FFMPEG_PATH}:ffmpeg" \
+    --hidden-import "tkinter" \
+    --hidden-import "tkinter.ttk" \
+    --hidden-import "tkinter.filedialog" \
+    --hidden-import "tkinter.messagebox" \
     --hidden-import "torch" \
     --hidden-import "torchvision" \
     --hidden-import "cv2" \
@@ -92,7 +123,10 @@ pyinstaller \
     --collect-all "torch" \
     --collect-all "torchvision" \
     --osx-bundle-identifier "com.internal.backgroundremover" \
-    src/main.py
+    run_app.py
+
+# 一時ファイルを削除
+rm -f run_app.py
 
 # .app バンドルに変換
 echo
