@@ -1,0 +1,44 @@
+{
+  "project_name": "RemoveBackgroundForVideo",
+  "description": "動画から人物の背景を自動的に除去し、透過動画（MOV ProRes 4444）を出力するデスクトップアプリケーション",
+  "version": "1.0.0",
+  "language": "Python 3.10+",
+  "license": "社内利用 (RVMはGPL-3.0)",
+  "tech_stack": {
+    "gui": "Tkinter",
+    "ai_model": "RobustVideoMatting (RVM)",
+    "deep_learning": "PyTorch",
+    "video_processing": ["OpenCV", "ffmpeg"],
+    "image_processing": ["Pillow", "NumPy"]
+  },
+  "features": [
+    "AI背景除去（RVM）",
+    "GPU対応（CUDA/MPS）",
+    "透過MOV出力",
+    "音声保持",
+    "キャンセル機能"
+  ],
+  "supported_platforms": {
+    "primary": ["Windows 10/11 + NVIDIA GPU", "macOS (Apple Silicon M1/M2)"],
+    "fallback": "CPU (低速)"
+  },
+  "input_formats": [".mp4", ".mov", ".m4v"],
+  "output_format": "MOV (ProRes 4444 with alpha)",
+  "directory_structure": {
+    "src/": "ソースコード",
+    "tests/": "テストコード",
+    "tests/fixtures/": "テスト用動画ファイル",
+    "models/": "AIモデル（rvm_mobilenetv3.torchscript）",
+    "ffmpeg/": "ffmpeg実行ファイル",
+    "docs/": "ドキュメント",
+    ".claude/workspace/": "Claude Code設定"
+  },
+  "entry_point": "python -m src.main",
+  "build_scripts": {
+    "windows_gpu": "build_gpu.bat",
+    "windows_cpu": "build_cpu.bat",
+    "macos": "build_mac.sh"
+  },
+  "test_command": "pytest",
+  "total_tests": 145
+}

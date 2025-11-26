@@ -1,0 +1,150 @@
+{
+  "modules": [
+    {
+      "file": "src/__init__.py",
+      "description": "パッケージ初期化ファイル",
+      "exports": []
+    },
+    {
+      "file": "src/main.py",
+      "description": "GUIアプリケーションのエントリーポイント",
+      "classes": [
+        {
+          "name": "BackgroundRemoverApp",
+          "description": "メインアプリケーションクラス（Tkinter GUI）",
+          "methods": [
+            "_setup_ui: UIコンポーネントの構築",
+            "_select_input: 入力ファイル選択ダイアログ",
+            "_select_output: 出力先選択ダイアログ",
+            "_start_processing: 処理開始（別スレッド起動）",
+            "_process_video: 動画処理の実行",
+            "_on_progress: 進捗更新コールバック",
+            "_on_complete: 処理完了時の処理",
+            "_on_error: エラー発生時の処理",
+            "_on_cancelled: キャンセル時の処理",
+            "_cancel_processing: 処理キャンセルの実行",
+            "_show_gpu_warning: GPU未検出警告の表示"
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main",
+          "description": "アプリケーションのエントリーポイント"
+        }
+      ]
+    },
+    {
+      "file": "src/video_processor.py",
+      "description": "動画の読み込み・処理・出力ロジック",
+      "classes": [
+        {
+          "name": "VideoInfo",
+          "description": "動画情報を格納するデータクラス",
+          "fields": ["width", "height", "fps", "frame_count", "duration", "has_audio"]
+        },
+        {
+          "name": "ProcessingCancelled",
+          "description": "処理キャンセル時の例外クラス"
+        },
+        {
+          "name": "VideoProcessor",
+          "description": "動画処理のメインクラス",
+          "methods": [
+            "process: 動画全体の処理（入力→背景除去→出力）",
+            "cancel: 処理のキャンセル要求",
+            "_process_frames: フレームごとの処理（キャンセル確認付き）",
+            "_create_rgba_image: RGBA画像の生成",
+            "_create_prores_video: ProRes 4444動画の生成（音声自動含む）"
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "get_video_info",
+          "description": "動画のメタ情報を取得（音声有無を含む）"
+        },
+        {
+          "name": "find_ffmpeg",
+          "description": "ffmpegの実行ファイルを検索"
+        },
+        {
+          "name": "_check_audio_stream",
+          "description": "動画に音声ストリームがあるか確認"
+        }
+      ]
+    },
+    {
+      "file": "src/rvm_model.py",
+      "description": "RobustVideoMattingモデルの管理",
+      "classes": [
+        {
+          "name": "RVMModel",
+          "description": "RVMモデルのロード・推論を担当",
+          "methods": [
+            "load: モデルファイルをロード",
+            "reset_state: recurrent状態をリセット",
+            "is_loaded: モデルがロード済みか確認",
+            "process_frame: 1フレームを処理してマスク生成",
+            "set_downsample_ratio: ダウンサンプル比率を設定"
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "download_model",
+          "description": "モデルをGitHubからダウンロード"
+        }
+      ],
+      "constants": [
+        "MODEL_URLS: モデルのダウンロードURL",
+        "DEFAULT_MODEL_DIR: デフォルトモデルディレクトリ"
+      ]
+    },
+    {
+      "file": "src/utils.py",
+      "description": "共通ユーティリティ関数",
+      "classes": [
+        {
+          "name": "DeviceInfo",
+          "description": "デバイス情報を格納するデータクラス",
+          "fields": ["device", "name", "is_gpu", "warning"]
+        }
+      ],
+      "functions": [
+        {
+          "name": "get_device",
+          "description": "最適なデバイス（CUDA/MPS/CPU）を取得"
+        },
+        {
+          "name": "get_device_info",
+          "description": "デバイスの詳細情報を取得"
+        },
+        {
+          "name": "is_supported_video",
+          "description": "サポートされている動画形式か判定"
+        },
+        {
+          "name": "get_output_path",
+          "description": "出力ファイルパスを生成"
+        },
+        {
+          "name": "ensure_directory",
+          "description": "ディレクトリが存在しなければ作成"
+        },
+        {
+          "name": "get_file_size_mb",
+          "description": "ファイルサイズをMB単位で取得"
+        },
+        {
+          "name": "format_time",
+          "description": "秒数を時:分:秒形式にフォーマット"
+        }
+      ],
+      "constants": [
+        "SUPPORTED_INPUT_EXTENSIONS: サポートする入力拡張子",
+        "OUTPUT_EXTENSION: 出力拡張子（.mov）"
+      ]
+    }
+  ]
+}
