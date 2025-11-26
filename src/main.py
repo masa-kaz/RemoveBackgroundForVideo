@@ -3,9 +3,15 @@
 
 import sys
 import threading
+import tkinter.font as tkfont
 from pathlib import Path
-from tkinter import Tk, Label, Button, Frame, StringVar, filedialog, messagebox
+from tkinter import Tk, Label, Button, Frame, StringVar, filedialog, messagebox, PhotoImage
 from tkinter.ttk import Progressbar, Style
+from PIL import Image, ImageTk
+
+# カスタムフォント設定
+FONT_FAMILY = "M PLUS 1p"
+FONT_FALLBACK = "Helvetica"
 
 # tkinterdnd2のインポート（ドラッグ＆ドロップ対応）
 try:
@@ -36,8 +42,8 @@ class BackgroundRemoverApp:
             root: Tkinterのルートウィンドウ
         """
         self.root = root
-        self.root.title("動画背景除去ツール")
-        self.root.geometry("500x400")
+        self.root.title("動画背景除去ツール by META AI LABO")
+        self.root.geometry("500x450")
         self.root.minsize(400, 350)  # 最小サイズを設定
         self.root.resizable(True, True)  # リサイズ可能
 
@@ -53,12 +59,98 @@ class BackgroundRemoverApp:
         self.model: RVMModel | None = None
         self.processor: VideoProcessor | None = None
 
+        # フォントを読み込み
+        self._load_fonts()
+
         # UIを構築
         self._setup_ui()
 
         # GPUなしの場合は警告を表示
         if self.device_info.warning:
             self.root.after(100, self._show_gpu_warning)
+
+    def _load_fonts(self) -> None:
+        """カスタムフォントを読み込む"""
+        # アセットパスを取得（PyInstallerビルド対応）
+        if getattr(sys, 'frozen', False):
+            base_path = Path(sys._MEIPASS)
+        else:
+            base_path = Path(__file__).parent.parent
+
+        font_dir = base_path / "assets" / "fonts"
+        regular_font = font_dir / "MPLUS1p-Regular.ttf"
+        bold_font = font_dir / "MPLUS1p-Bold.ttf"
+
+        # フォントファミリーを決定
+        self.font_family = FONT_FALLBACK
+
+        try:
+            # macOSでカスタムフォントを読み込み
+            if sys.platform == "darwin" and regular_font.exists():
+                import ctypes
+                # Core Textでフォントを登録
+                ct = ctypes.CDLL("/System/Library/Frameworks/CoreText.framework/CoreText")
+                url_ref = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+
+                # フォントファイルをURLとして登録
+                for font_path in [regular_font, bold_font]:
+                    if font_path.exists():
+                        url_ref.CFURLCreateWithFileSystemPath.restype = ctypes.c_void_p
+                        url_ref.CFURLCreateWithFileSystemPath.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_bool]
+
+                        cf_string = url_ref.CFStringCreateWithCString(None, str(font_path).encode(), 0)
+                        cf_url = url_ref.CFURLCreateWithFileSystemPath(None, cf_string, 0, False)
+                        ct.CTFontManagerRegisterFontsForURL(cf_url, 1, None)
+
+                self.font_family = FONT_FAMILY
+
+            # Windowsでカスタムフォントを読み込み
+            elif sys.platform == "win32" and regular_font.exists():
+                import ctypes
+                gdi32 = ctypes.windll.gdi32
+                for font_path in [regular_font, bold_font]:
+                    if font_path.exists():
+                        gdi32.AddFontResourceExW(str(font_path), 0x10, 0)
+                self.font_family = FONT_FAMILY
+
+            # Linux/その他: システムフォントを確認
+            else:
+                available_fonts = tkfont.families()
+                if FONT_FAMILY in available_fonts:
+                    self.font_family = FONT_FAMILY
+
+        except Exception:
+            # フォント読み込みに失敗した場合はフォールバック
+            self.font_family = FONT_FALLBACK
+
+    def _load_logo(self, parent: Frame) -> None:
+        """ロゴ画像を読み込んで表示する
+
+        Args:
+            parent: 親フレーム
+        """
+        # アセットパスを取得（PyInstallerビルド対応）
+        if getattr(sys, 'frozen', False):
+            # PyInstallerでビルドされた場合
+            base_path = Path(sys._MEIPASS)
+        else:
+            # 通常のPython実行
+            base_path = Path(__file__).parent.parent
+
+        logo_path = base_path / "assets" / "icon.png"
+
+        try:
+            if logo_path.exists():
+                # 画像を読み込んでリサイズ
+                img = Image.open(logo_path)
+                img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                self.logo_image = ImageTk.PhotoImage(img)
+
+                logo_label = Label(parent, image=self.logo_image)
+                logo_label.pack(pady=(0, 5))
+        except Exception:
+            # ロゴ読み込みに失敗しても続行
+            pass
 
     def _setup_ui(self) -> None:
         """UIを構築する"""
@@ -70,18 +162,21 @@ class BackgroundRemoverApp:
         main_frame = Frame(self.root, padx=20, pady=20)
         main_frame.pack(fill="both", expand=True)
 
+        # ロゴ画像を読み込み
+        self._load_logo(main_frame)
+
         # タイトル
         title_label = Label(
             main_frame,
-            text="動画背景除去ツール",
-            font=("Helvetica", 16, "bold"),
+            text="動画背景除去ツール by META AI LABO",
+            font=(self.font_family, 14, "bold"),
         )
         title_label.pack(pady=(0, 10))
 
         # デバイス情報
         device_text = f"使用デバイス: {self.device_info.name}"
         device_color = "green" if self.device_info.is_gpu else "orange"
-        device_label = Label(main_frame, text=device_text, fg=device_color)
+        device_label = Label(main_frame, text=device_text, fg=device_color, font=(self.font_family, 10))
         device_label.pack(pady=(0, 15))
 
         # ドロップゾーン（ファイルをドラッグ＆ドロップできるエリア）
@@ -98,7 +193,7 @@ class BackgroundRemoverApp:
             text="ここに動画ファイルをドラッグ＆ドロップ\n(.mp4, .mov, .m4v)",
             bg="#f0f0f0",
             fg="#666666",
-            font=("Helvetica", 10),
+            font=(self.font_family, 10),
         )
         self.drop_label.pack(expand=True)
 

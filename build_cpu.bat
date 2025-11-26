@@ -103,6 +103,7 @@ pyinstaller ^
     --icon "assets\icon.ico" ^
     --add-data "models;models" ^
     --add-data "src;src" ^
+    --add-data "assets;assets" ^
     --add-data "ffmpeg;ffmpeg" ^
     --hidden-import "tkinter" ^
     --hidden-import "tkinter.ttk" ^

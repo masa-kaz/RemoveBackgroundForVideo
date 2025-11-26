@@ -111,6 +111,7 @@ pyinstaller \
     --icon "assets/icon.icns" \
     --add-data "models:models" \
     --add-data "src:src" \
+    --add-data "assets:assets" \
     --add-binary "${FFMPEG_PATH}:ffmpeg" \
     --hidden-import "tkinter" \
     --hidden-import "tkinter.ttk" \
@@ -151,7 +152,7 @@ if [ -d "dist/BackgroundRemover_Mac" ]; then
     <key>CFBundleName</key>
     <string>BackgroundRemover</string>
     <key>CFBundleDisplayName</key>
-    <string>動画背景除去ツール</string>
+    <string>動画背景除去ツール by META AI LABO</string>
     <key>CFBundleIdentifier</key>
     <string>com.internal.backgroundremover</string>
     <key>CFBundleVersion</key>
