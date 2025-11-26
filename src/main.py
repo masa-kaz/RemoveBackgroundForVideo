@@ -64,27 +64,27 @@ COLORS = {
 # フォントサイズ（アクセシビリティ対応・大きめ）
 # =============================================================================
 FONT_SIZES = {
-    "title": 28,
-    "subtitle": 16,
-    "button": 20,
-    "filename": 18,
-    "video_info": 16,
-    "hint": 15,
-    "progress_percent": 32,
-    "frame_count": 16,
-    "footer": 14,
-    "dialog_title": 20,
-    "dialog_body": 16,
-    "dialog_button": 18,
-    "toast": 16,
+    "title": 32,
+    "subtitle": 18,
+    "button": 24,
+    "filename": 22,
+    "video_info": 18,
+    "hint": 17,
+    "progress_percent": 40,
+    "frame_count": 18,
+    "footer": 16,
+    "dialog_title": 24,
+    "dialog_body": 18,
+    "dialog_button": 20,
+    "toast": 18,
 }
 
 # =============================================================================
 # サイズ定数
 # =============================================================================
 SIZES = {
-    "window_initial": (600, 750),
-    "window_min": (520, 650),
+    "window_initial": (700, 850),
+    "window_min": (600, 750),
     "content_max_width": 800,
     "thumbnail_max_width": 500,
     "thumbnail_aspect_ratio": 16 / 9,
@@ -141,19 +141,16 @@ class CircularProgress(ctk.CTkFrame):
         self._percent_text = "0%"
         self._frame_text = ""
 
-        # Canvasを作成（透明背景）
-        # 注意: tkinterのCanvasは真の透明をサポートしないため、
-        # 親フレームの背景色に合わせる必要がある
+        # Canvasを作成（親フレームの背景色に合わせて視覚的に透明に）
         self.canvas = ctk.CTkCanvas(
             self,
             width=size,
             height=size,
+            bg=COLORS["card"],  # 親のサムネイルフレームと同じ白背景
             highlightthickness=0,
         )
         self.canvas.pack()
 
-        # 透明背景を実現するため、親のサムネイルと同じ背景色を使わない
-        # 代わりに半透明効果をCanvas上で表現
         self._draw_progress()
 
     def _draw_text_with_outline(self, x: int, y: int, text: str, font_size: int, bold: bool = False):
@@ -188,16 +185,7 @@ class CircularProgress(ctk.CTkFrame):
         """円とテキストを描画"""
         self.canvas.delete("all")
 
-        # 半透明の背景円（白、薄く）
         center = self._size // 2
-        radius = (self._size - self._line_width * 2) // 2
-        self.canvas.create_oval(
-            center - radius, center - radius,
-            center + radius, center + radius,
-            fill="#FFFFFF",
-            stipple="gray50",  # 半透明効果
-            outline="",
-        )
 
         # 背景円（トラック）
         padding = self._line_width
@@ -315,7 +303,9 @@ class CustomDialog(ctk.CTkToplevel):
     ):
         super().__init__(parent)
 
-        self.title(title)
+        # タイトルバー（✕、最小化等）を非表示にする
+        self.overrideredirect(True)
+
         self.geometry(f"{width}x{height}")
         self.resizable(False, False)
         self.transient(parent)
@@ -326,6 +316,9 @@ class CustomDialog(ctk.CTkToplevel):
         x = parent.winfo_x() + (parent.winfo_width() - width) // 2
         y = parent.winfo_y() + (parent.winfo_height() - height) // 2
         self.geometry(f"+{x}+{y}")
+
+        # ダイアログに枠線を追加（タイトルバーがないため境界を明確に）
+        self.configure(border_width=1, border_color=COLORS["border"])
 
         # メインフレーム
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -456,6 +449,11 @@ class BackgroundRemoverApp:
         self.processed_thumbnail_image = None
         self.checkerboard_image = None
 
+        # 元のPIL画像を保持（リサイズ用）
+        self._original_thumbnail_pil: Image.Image | None = None
+        self._original_processed_pil: Image.Image | None = None
+        self._last_window_width: int = 0
+
         # 動画情報
         self.video_duration: float = 0
         self.video_frame_count: int = 0
@@ -501,9 +499,11 @@ class BackgroundRemoverApp:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(frame_rgb)
 
+            # 元画像を保持（リサイズ用）
+            self._original_thumbnail_pil = img.copy()
+
             # サムネイルサイズを計算
-            width = min(SIZES["thumbnail_max_width"], self.root.winfo_width() - SIZES["padding"] * 2)
-            height = int(width / SIZES["thumbnail_aspect_ratio"])
+            width, height = self._calculate_thumbnail_size()
 
             # アスペクト比を維持してリサイズ
             img = img.resize((width, height), Image.Resampling.LANCZOS)
@@ -513,6 +513,74 @@ class BackgroundRemoverApp:
         except Exception:
             return None
 
+    def _calculate_thumbnail_size(self) -> tuple[int, int]:
+        """現在のウィンドウ幅に基づいてサムネイルサイズを計算"""
+        window_width = self.root.winfo_width()
+        # ウィンドウ幅からパディングを引いた幅を使用（最小200px）
+        available_width = window_width - SIZES["padding"] * 4  # 左右のパディング分
+        width = max(200, available_width)
+
+        # 元画像のアスペクト比を使用（あれば）
+        if self._original_thumbnail_pil:
+            orig_w, orig_h = self._original_thumbnail_pil.size
+            aspect_ratio = orig_w / orig_h
+        else:
+            aspect_ratio = SIZES["thumbnail_aspect_ratio"]
+
+        height = int(width / aspect_ratio)
+        return width, height
+
+    def _on_window_resize(self, event) -> None:
+        """ウィンドウリサイズ時のハンドラ"""
+        # rootウィンドウのリサイズのみ処理
+        if event.widget != self.root:
+            return
+
+        # thumbnail_labelが存在しない場合はスキップ
+        if not hasattr(self, "thumbnail_label"):
+            return
+
+        # 幅が変わった場合のみサムネイルを更新
+        new_width = self.root.winfo_width()
+        if abs(new_width - self._last_window_width) > 10:  # 10px以上の変化
+            self._last_window_width = new_width
+            # 少し遅延させてリサイズ完了後に更新
+            self.root.after(50, self._update_thumbnail_size)
+
+    def _update_thumbnail_size(self) -> None:
+        """ウィンドウサイズに合わせてサムネイルを更新"""
+        # 処理中は更新しない
+        if self.is_processing:
+            return
+
+        # サムネイルラベルが存在しない、または表示されていない場合はスキップ
+        if not hasattr(self, "thumbnail_label") or not self.thumbnail_label.winfo_ismapped():
+            return
+
+        # 元画像がない場合はスキップ
+        if not self._original_thumbnail_pil and not self._original_processed_pil:
+            return
+
+        width, height = self._calculate_thumbnail_size()
+
+        # 完了状態で処理済み画像がある場合
+        if self.current_state == self.STATE_COMPLETE and self._original_processed_pil:
+            img = self._original_processed_pil.resize((width, height), Image.Resampling.LANCZOS)
+            green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+            green_bg.paste(img, (0, 0), img)
+            self.processed_thumbnail_image = ctk.CTkImage(light_image=green_bg, size=(width, height))
+            self.thumbnail_label.configure(image=self.processed_thumbnail_image)
+            # 強制的に再描画
+            self.thumbnail_label.update_idletasks()
+
+        # ファイル選択状態で元画像がある場合
+        elif self._original_thumbnail_pil:
+            img = self._original_thumbnail_pil.resize((width, height), Image.Resampling.LANCZOS)
+            self.thumbnail_image = ctk.CTkImage(light_image=img, size=(width, height))
+            self.thumbnail_label.configure(image=self.thumbnail_image)
+            # 強制的に再描画
+            self.thumbnail_label.update_idletasks()
+
     def _extract_processed_thumbnail(self, video_path: str) -> ctk.CTkImage | None:
         """処理済み動画からサムネイルを抽出（グリーンバック背景）
 
@@ -520,10 +588,6 @@ class BackgroundRemoverApp:
         ffmpegでPNGとして抽出する
         """
         try:
-            # サムネイルサイズを計算
-            width = min(SIZES["thumbnail_max_width"], self.root.winfo_width() - SIZES["padding"] * 2)
-            height = int(width / SIZES["thumbnail_aspect_ratio"])
-
             # 一時ファイルにPNGとして抽出（ffmpegでアルファチャンネル対応）
             temp_png = tempfile.mktemp(suffix=".png")
 
@@ -547,7 +611,7 @@ class BackgroundRemoverApp:
 
             if result.returncode != 0 or not Path(temp_png).exists():
                 # ffmpegが失敗した場合はOpenCVにフォールバック
-                return self._extract_processed_thumbnail_fallback(video_path, width, height)
+                return self._extract_processed_thumbnail_fallback(video_path)
 
             # PNGを読み込み（アルファチャンネル付き）
             img = Image.open(temp_png).convert("RGBA")
@@ -558,21 +622,27 @@ class BackgroundRemoverApp:
             except Exception:
                 pass
 
+            # 元画像を保持（リサイズ用）
+            self._original_processed_pil = img.copy()
+
+            # サムネイルサイズを計算
+            width, height = self._calculate_thumbnail_size()
+
             # アスペクト比を維持してリサイズ
-            img = img.resize((width, height), Image.Resampling.LANCZOS)
+            img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
 
             # グリーンバック背景を作成（#00FF00）
             green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
 
             # グリーンバックの上に処理済み画像を合成
-            green_bg.paste(img, (0, 0), img)
+            green_bg.paste(img_resized, (0, 0), img_resized)
 
             return ctk.CTkImage(light_image=green_bg, size=(width, height))
 
         except Exception:
             return None
 
-    def _extract_processed_thumbnail_fallback(self, video_path: str, width: int, height: int) -> ctk.CTkImage | None:
+    def _extract_processed_thumbnail_fallback(self, video_path: str) -> ctk.CTkImage | None:
         """OpenCVを使ったフォールバック（アルファなし）"""
         try:
             cap = cv2.VideoCapture(video_path)
@@ -587,16 +657,22 @@ class BackgroundRemoverApp:
 
             # BGRからRGBに変換
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(frame_rgb)
+            img = Image.fromarray(frame_rgb).convert("RGBA")
+
+            # 元画像を保持（リサイズ用）
+            self._original_processed_pil = img.copy()
+
+            # サムネイルサイズを計算
+            width, height = self._calculate_thumbnail_size()
 
             # アスペクト比を維持してリサイズ
-            img = img.resize((width, height), Image.Resampling.LANCZOS)
+            img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
 
             # グリーンバック背景を作成（#00FF00）
             green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
 
             # 画像を合成（アルファなしなのでそのまま）
-            green_bg.paste(img.convert("RGBA"), (0, 0))
+            green_bg.paste(img_resized, (0, 0))
 
             return ctk.CTkImage(light_image=green_bg, size=(width, height))
 
@@ -653,6 +729,9 @@ class BackgroundRemoverApp:
         # 初期状態を設定
         self._update_ui_state()
 
+        # ウィンドウリサイズイベントをバインド
+        self.root.bind("<Configure>", self._on_window_resize)
+
     def _setup_header(self) -> None:
         """ヘッダーを設定"""
         header_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
@@ -696,35 +775,36 @@ class BackgroundRemoverApp:
             border_color=COLORS["border"],
         )
 
+        # 縦横中央揃え用のコンテナ
         drop_content = ctk.CTkFrame(self.drop_zone_frame, fg_color="transparent")
-        drop_content.pack(expand=True, fill="both", padx=20, pady=40)
+        drop_content.place(relx=0.5, rely=0.5, anchor="center")
 
-        # アイコン
+        # アイコン（大きめ）
         self.drop_icon_label = ctk.CTkLabel(
             drop_content,
             text="📁",
-            font=ctk.CTkFont(size=48),
+            font=ctk.CTkFont(size=64),
         )
-        self.drop_icon_label.pack(pady=(0, 12))
+        self.drop_icon_label.pack(pady=(0, 16))
 
-        # テキスト
+        # テキスト（大きめ）
         self.drop_text_label = ctk.CTkLabel(
             drop_content,
             text="動画をドラッグ＆ドロップ\nまたは クリック",
-            font=ctk.CTkFont(size=FONT_SIZES["filename"]),
+            font=ctk.CTkFont(size=28),
             text_color=COLORS["text_secondary"],
             justify="center",
         )
         self.drop_text_label.pack()
 
-        # 対応形式
+        # 対応形式（大きめ）
         self.drop_hint_label = ctk.CTkLabel(
             drop_content,
             text=".mp4  .mov  .m4v",
-            font=ctk.CTkFont(size=FONT_SIZES["hint"]),
+            font=ctk.CTkFont(size=20),
             text_color=COLORS["text_secondary"],
         )
-        self.drop_hint_label.pack(pady=(8, 0))
+        self.drop_hint_label.pack(pady=(12, 0))
 
         # クリックイベント
         for widget in [self.drop_zone_frame, drop_content, self.drop_icon_label, self.drop_text_label, self.drop_hint_label]:
@@ -1208,7 +1288,11 @@ class BackgroundRemoverApp:
         dialog.add_button("閉じる", dialog.destroy, primary=True)
 
     def _show_cancel_confirm_dialog(self) -> None:
-        """キャンセル確認ダイアログを表示"""
+        """キャンセル確認ダイアログを表示（処理を一時停止）"""
+        # 処理を一時停止
+        if self.processor:
+            self.processor.pause()
+
         dialog = CustomDialog(
             self.root,
             title="確認",
@@ -1219,6 +1303,9 @@ class BackgroundRemoverApp:
 
         def on_continue():
             dialog.destroy()
+            # 処理を再開
+            if self.processor:
+                self.processor.resume()
 
         def on_cancel():
             dialog.destroy()

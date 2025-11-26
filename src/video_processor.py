@@ -162,18 +162,34 @@ class VideoProcessor:
         self.model = model
         self.ffmpeg_path = ffmpeg_path or find_ffmpeg()
         self._cancel_flag = threading.Event()
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # 初期状態は「再開中」（ブロックしない）
 
     def cancel(self) -> None:
         """処理をキャンセルする"""
         self._cancel_flag.set()
+        self._pause_event.set()  # 一時停止中ならブロック解除
 
     def reset_cancel(self) -> None:
         """キャンセルフラグをリセットする"""
         self._cancel_flag.clear()
+        self._pause_event.set()  # 初期状態に戻す
 
     def is_cancelled(self) -> bool:
         """キャンセルされているかどうかを返す"""
         return self._cancel_flag.is_set()
+
+    def pause(self) -> None:
+        """処理を一時停止する"""
+        self._pause_event.clear()
+
+    def resume(self) -> None:
+        """処理を再開する"""
+        self._pause_event.set()
+
+    def is_paused(self) -> bool:
+        """一時停止中かどうかを返す"""
+        return not self._pause_event.is_set()
 
     def process(
         self,
@@ -266,6 +282,9 @@ class VideoProcessor:
         try:
             frame_idx = 0
             while True:
+                # 一時停止中は待機
+                self._pause_event.wait()
+
                 # キャンセル確認
                 if self.is_cancelled():
                     raise ProcessingCancelled("処理がキャンセルされました")

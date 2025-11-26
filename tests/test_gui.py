@@ -150,56 +150,56 @@ class TestFonts:
     """フォントサイズが仕様通りか確認（アクセシビリティ対応・大きめ）"""
 
     def test_title_font_size(self):
-        """タイトルが28pxであること"""
-        assert FONT_SIZES["title"] == 28
+        """タイトルが32pxであること"""
+        assert FONT_SIZES["title"] == 32
 
     def test_subtitle_font_size(self):
-        """サブタイトルが16pxであること"""
-        assert FONT_SIZES["subtitle"] == 16
+        """サブタイトルが18pxであること"""
+        assert FONT_SIZES["subtitle"] == 18
 
     def test_button_font_size(self):
-        """ボタンテキストが20pxであること"""
-        assert FONT_SIZES["button"] == 20
+        """ボタンテキストが24pxであること"""
+        assert FONT_SIZES["button"] == 24
 
     def test_filename_font_size(self):
-        """ファイル名が18pxであること"""
-        assert FONT_SIZES["filename"] == 18
+        """ファイル名が22pxであること"""
+        assert FONT_SIZES["filename"] == 22
 
     def test_video_info_font_size(self):
-        """動画情報が16pxであること"""
-        assert FONT_SIZES["video_info"] == 16
+        """動画情報が18pxであること"""
+        assert FONT_SIZES["video_info"] == 18
 
     def test_hint_font_size(self):
-        """補助テキストが15pxであること"""
-        assert FONT_SIZES["hint"] == 15
+        """補助テキストが17pxであること"""
+        assert FONT_SIZES["hint"] == 17
 
     def test_progress_percent_font_size(self):
-        """円形プログレス%が32pxであること"""
-        assert FONT_SIZES["progress_percent"] == 32
+        """円形プログレス%が40pxであること"""
+        assert FONT_SIZES["progress_percent"] == 40
 
     def test_frame_count_font_size(self):
-        """フレーム数が16pxであること"""
-        assert FONT_SIZES["frame_count"] == 16
+        """フレーム数が18pxであること"""
+        assert FONT_SIZES["frame_count"] == 18
 
     def test_footer_font_size(self):
-        """フッターが14pxであること"""
-        assert FONT_SIZES["footer"] == 14
+        """フッターが16pxであること"""
+        assert FONT_SIZES["footer"] == 16
 
     def test_dialog_title_font_size(self):
-        """ダイアログタイトルが20pxであること"""
-        assert FONT_SIZES["dialog_title"] == 20
+        """ダイアログタイトルが24pxであること"""
+        assert FONT_SIZES["dialog_title"] == 24
 
     def test_dialog_body_font_size(self):
-        """ダイアログ本文が16pxであること"""
-        assert FONT_SIZES["dialog_body"] == 16
+        """ダイアログ本文が18pxであること"""
+        assert FONT_SIZES["dialog_body"] == 18
 
     def test_dialog_button_font_size(self):
-        """ダイアログボタンが18pxであること"""
-        assert FONT_SIZES["dialog_button"] == 18
+        """ダイアログボタンが20pxであること"""
+        assert FONT_SIZES["dialog_button"] == 20
 
     def test_toast_font_size(self):
-        """トーストが16pxであること"""
-        assert FONT_SIZES["toast"] == 16
+        """トーストが18pxであること"""
+        assert FONT_SIZES["toast"] == 18
 
 
 # =============================================================================
@@ -209,12 +209,12 @@ class TestWindowSize:
     """ウィンドウサイズが仕様通りか確認"""
 
     def test_initial_size(self):
-        """初期サイズが600x750であること"""
-        assert SIZES["window_initial"] == (600, 750)
+        """初期サイズが700x850であること"""
+        assert SIZES["window_initial"] == (700, 850)
 
     def test_minimum_size(self):
-        """最小サイズが520x650であること"""
-        assert SIZES["window_min"] == (520, 650)
+        """最小サイズが600x750であること"""
+        assert SIZES["window_min"] == (600, 750)
 
     def test_content_max_width(self):
         """コンテンツ最大幅が800pxであること"""
