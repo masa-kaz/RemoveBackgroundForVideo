@@ -2,6 +2,7 @@
 #
 # トリガー:
 #   - mainブランチへのプッシュ → Artifactsとして一時保存（90日）
+#   - feature/*ブランチへのプッシュ → デバッグビルド
 #   - タグ作成（v*） → GitHub Releasesに公開
 #
 # ビルド対象:
@@ -15,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - 'feature/*'
     tags:
       - 'v*'
   workflow_dispatch:  # 手動実行も可能
@@ -95,9 +97,11 @@ jobs:
             --hidden-import "PIL" `
             --hidden-import "numpy" `
             --hidden-import "tkinterdnd2" `
+            --hidden-import "customtkinter" `
             --collect-all "torch" `
             --collect-all "torchvision" `
             --collect-all "tkinterdnd2" `
+            --collect-all "customtkinter" `
             run_app.py
 
       - name: Create ZIP archive
@@ -186,9 +190,11 @@ jobs:
             --hidden-import "PIL" `
             --hidden-import "numpy" `
             --hidden-import "tkinterdnd2" `
+            --hidden-import "customtkinter" `
             --collect-all "torch" `
             --collect-all "torchvision" `
             --collect-all "tkinterdnd2" `
+            --collect-all "customtkinter" `
             run_app.py
 
       - name: Create ZIP archive
@@ -273,9 +279,11 @@ jobs:
             --hidden-import "PIL" \
             --hidden-import "numpy" \
             --hidden-import "tkinterdnd2" \
+            --hidden-import "customtkinter" \
             --collect-all "torch" \
             --collect-all "torchvision" \
             --collect-all "tkinterdnd2" \
+            --collect-all "customtkinter" \
             --osx-bundle-identifier "com.internal.backgroundremover" \
             run_app.py
 

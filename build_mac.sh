@@ -123,9 +123,11 @@ pyinstaller \
     --hidden-import "PIL" \
     --hidden-import "numpy" \
     --hidden-import "tkinterdnd2" \
+    --hidden-import "customtkinter" \
     --collect-all "torch" \
     --collect-all "torchvision" \
     --collect-all "tkinterdnd2" \
+    --collect-all "customtkinter" \
     --osx-bundle-identifier "com.internal.backgroundremover" \
     run_app.py
 

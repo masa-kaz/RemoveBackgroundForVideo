@@ -115,9 +115,11 @@ pyinstaller ^
     --hidden-import "PIL" ^
     --hidden-import "numpy" ^
     --hidden-import "tkinterdnd2" ^
+    --hidden-import "customtkinter" ^
     --collect-all "torch" ^
     --collect-all "torchvision" ^
     --collect-all "tkinterdnd2" ^
+    --collect-all "customtkinter" ^
     run_app.py
 
 REM 一時ファイルを削除
