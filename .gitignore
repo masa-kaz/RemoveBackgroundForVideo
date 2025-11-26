@@ -55,3 +55,5 @@ ffmpeg/ffmpeg
 .DS_Store
 Thumbs.db
 venv_test/
+venv_mac/
+venv_test/

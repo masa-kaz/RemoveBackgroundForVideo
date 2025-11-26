@@ -1,16 +1,22 @@
 # -*- coding: utf-8 -*-
-"""動画背景除去ツール - GUI (CustomTkinter版)"""
+"""動画背景除去ツール - GUI (CustomTkinter版)
+
+UI仕様書: .claude/workspace/task.md
+"""
 
 import math
+import os
+import shutil
 import subprocess
 import sys
-import threading
 import tempfile
+import threading
 from pathlib import Path
+from typing import Callable, Optional
 
 import cv2
 import customtkinter as ctk
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw
 
 # tkinterdnd2のインポート（ドラッグ＆ドロップ対応）
 try:
@@ -32,33 +38,97 @@ from utils import (
 )
 
 
-# カラーテーマ
+# =============================================================================
+# カラーテーマ（META AI LABO準拠）
+# =============================================================================
 COLORS = {
-    "primary": "#2563eb",  # 青
-    "primary_hover": "#1d4ed8",
-    "success": "#16a34a",  # 緑
-    "warning": "#ea580c",  # オレンジ
-    "danger": "#dc2626",  # 赤
-    "bg": "#f8fafc",  # 背景
-    "card": "#ffffff",  # カード背景
-    "border": "#e2e8f0",  # ボーダー
-    "text": "#1e293b",  # テキスト
-    "text_secondary": "#64748b",  # セカンダリテキスト
-    "drop_zone": "#f1f5f9",  # ドロップゾーン
-    "drop_zone_hover": "#dbeafe",  # ドロップゾーンホバー
+    "primary": "#8BC34A",  # 葉っぱの黄緑（ブランドカラー）
+    "primary_dark": "#689F38",  # 葉っぱの濃い緑
+    "primary_hover": "#7CB342",  # ホバー時
+    "secondary": "#263238",  # フィルム枠のダークネイビー
+    "success": "#4CAF50",  # 成功
+    "warning": "#FF9800",  # 警告
+    "danger": "#F44336",  # エラー
+    "bg": "#FAFAFA",  # 明るい背景
+    "card": "#FFFFFF",  # カード背景
+    "border": "#E0E0E0",  # ボーダー
+    "text": "#263238",  # メインテキスト
+    "text_secondary": "#616161",  # サブテキスト
+    "drop_zone": "#F5F5F5",  # ドロップゾーン
+    "drop_zone_hover": "#E8F5E9",  # ドロップゾーンホバー
+    "toast_bg": "#263238",  # トースト背景
+    "toast_text": "#FFFFFF",  # トーストテキスト
+}
+
+# =============================================================================
+# フォントサイズ（アクセシビリティ対応・大きめ）
+# =============================================================================
+FONT_SIZES = {
+    "title": 28,
+    "subtitle": 16,
+    "button": 20,
+    "filename": 18,
+    "video_info": 16,
+    "hint": 15,
+    "progress_percent": 32,
+    "frame_count": 16,
+    "footer": 14,
+    "dialog_title": 20,
+    "dialog_body": 16,
+    "dialog_button": 18,
+    "toast": 16,
+}
+
+# =============================================================================
+# サイズ定数
+# =============================================================================
+SIZES = {
+    "window_initial": (600, 750),
+    "window_min": (520, 650),
+    "content_max_width": 800,
+    "thumbnail_max_width": 500,
+    "thumbnail_aspect_ratio": 16 / 9,
+    "button_height": 60,
+    "button_max_width": 500,
+    "circular_progress": 140,
+    "padding": 24,
+    "dialog_width": 420,
+    "dialog_button_height": 50,
+    "logo_size": 48,
 }
 
 
+# =============================================================================
+# 市松模様生成
+# =============================================================================
+def create_checkerboard_image(width: int, height: int, cell_size: int = 10) -> Image.Image:
+    """市松模様の画像を生成"""
+    img = Image.new("RGBA", (width, height))
+    draw = ImageDraw.Draw(img)
+
+    colors = [(200, 200, 200, 255), (255, 255, 255, 255)]
+
+    for y in range(0, height, cell_size):
+        for x in range(0, width, cell_size):
+            color_index = ((x // cell_size) + (y // cell_size)) % 2
+            draw.rectangle([x, y, x + cell_size, y + cell_size], fill=colors[color_index])
+
+    return img
+
+
+# =============================================================================
+# 円形プログレスバー
+# =============================================================================
 class CircularProgress(ctk.CTkFrame):
-    """円形プログレスバー"""
+    """円形プログレスバー（透明背景、白縁黒文字）"""
 
     def __init__(
         self,
         master,
-        size: int = 120,
-        line_width: int = 8,
-        progress_color: str = "#2563eb",
-        bg_color: str = "#e2e8f0",
+        size: int = SIZES["circular_progress"],
+        line_width: int = 10,
+        progress_color: str = COLORS["primary"],
+        bg_color: str = COLORS["border"],
         **kwargs
     ):
         super().__init__(master, fg_color="transparent", **kwargs)
@@ -68,33 +138,68 @@ class CircularProgress(ctk.CTkFrame):
         self._progress_color = progress_color
         self._bg_color = bg_color
         self._progress = 0.0
+        self._percent_text = "0%"
+        self._frame_text = ""
 
-        # Canvasを作成
+        # Canvasを作成（透明背景）
+        # 注意: tkinterのCanvasは真の透明をサポートしないため、
+        # 親フレームの背景色に合わせる必要がある
         self.canvas = ctk.CTkCanvas(
             self,
             width=size,
             height=size,
-            bg=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"]),
             highlightthickness=0,
         )
         self.canvas.pack()
 
-        # 中央のテキスト用ラベル
-        self.percent_label = ctk.CTkLabel(
-            self,
-            text="0%",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=COLORS["text"],
-        )
-        self.percent_label.place(relx=0.5, rely=0.5, anchor="center")
-
+        # 透明背景を実現するため、親のサムネイルと同じ背景色を使わない
+        # 代わりに半透明効果をCanvas上で表現
         self._draw_progress()
 
+    def _draw_text_with_outline(self, x: int, y: int, text: str, font_size: int, bold: bool = False):
+        """白縁付きの黒文字を描画"""
+        font_weight = "bold" if bold else "normal"
+        font = (ctk.CTkFont().cget("family"), font_size, font_weight)
+
+        # 白い縁取り（8方向にオフセットして描画）
+        outline_color = "white"
+        outline_width = 2
+        for dx in [-outline_width, 0, outline_width]:
+            for dy in [-outline_width, 0, outline_width]:
+                if dx != 0 or dy != 0:
+                    self.canvas.create_text(
+                        x + dx, y + dy,
+                        text=text,
+                        font=font,
+                        fill=outline_color,
+                        anchor="center",
+                    )
+
+        # 黒い本文
+        self.canvas.create_text(
+            x, y,
+            text=text,
+            font=font,
+            fill=COLORS["text"],
+            anchor="center",
+        )
+
     def _draw_progress(self):
-        """円を描画"""
+        """円とテキストを描画"""
         self.canvas.delete("all")
 
-        # 背景円
+        # 半透明の背景円（白、薄く）
+        center = self._size // 2
+        radius = (self._size - self._line_width * 2) // 2
+        self.canvas.create_oval(
+            center - radius, center - radius,
+            center + radius, center + radius,
+            fill="#FFFFFF",
+            stipple="gray50",  # 半透明効果
+            outline="",
+        )
+
+        # 背景円（トラック）
         padding = self._line_width
         self.canvas.create_arc(
             padding,
@@ -123,80 +228,218 @@ class CircularProgress(ctk.CTkFrame):
                 width=self._line_width,
             )
 
-    def set(self, value: float):
+        # パーセンテージテキスト（白縁黒文字）
+        self._draw_text_with_outline(
+            center, center - 10,
+            self._percent_text,
+            FONT_SIZES["progress_percent"],
+            bold=True,
+        )
+
+        # フレーム数テキスト（白縁黒文字）
+        if self._frame_text:
+            self._draw_text_with_outline(
+                center, center + 25,
+                self._frame_text,
+                FONT_SIZES["frame_count"],
+                bold=False,
+            )
+
+    def set(self, value: float, current: int = 0, total: int = 0):
         """進捗を設定 (0.0 ~ 1.0)"""
         self._progress = max(0.0, min(1.0, value))
-        self.percent_label.configure(text=f"{int(self._progress * 100)}%")
+        self._percent_text = f"{int(self._progress * 100)}%"
+        if total > 0:
+            self._frame_text = f"{current:,} / {total:,} f"
         self._draw_progress()
 
     def get(self) -> float:
         """現在の進捗を取得"""
         return self._progress
 
-
-class CTkDnDFrame(ctk.CTkFrame):
-    """ドラッグ＆ドロップ対応のCTkFrame"""
-
-    def __init__(self, master, **kwargs):
-        super().__init__(master, **kwargs)
-        self._drop_callback = None
-        self._drag_enter_callback = None
-        self._drag_leave_callback = None
-
-    def configure_dnd(self, on_drop=None, on_drag_enter=None, on_drag_leave=None):
-        """ドラッグ＆ドロップのコールバックを設定"""
-        self._drop_callback = on_drop
-        self._drag_enter_callback = on_drag_enter
-        self._drag_leave_callback = on_drag_leave
-
-        if HAS_DND:
-            self.drop_target_register(DND_FILES)
-            self.dnd_bind("<<Drop>>", self._handle_drop)
-            self.dnd_bind("<<DragEnter>>", self._handle_drag_enter)
-            self.dnd_bind("<<DragLeave>>", self._handle_drag_leave)
-
-    def _handle_drop(self, event):
-        if self._drop_callback:
-            self._drop_callback(event)
-
-    def _handle_drag_enter(self, event):
-        if self._drag_enter_callback:
-            self._drag_enter_callback(event)
-
-    def _handle_drag_leave(self, event):
-        if self._drag_leave_callback:
-            self._drag_leave_callback(event)
+    def reset(self):
+        """リセット"""
+        self._progress = 0.0
+        self._percent_text = "0%"
+        self._frame_text = ""
+        self._draw_progress()
 
 
+# =============================================================================
+# トースト通知
+# =============================================================================
+class Toast(ctk.CTkFrame):
+    """トースト通知"""
+
+    def __init__(self, master, message: str, duration: int = 2000):
+        super().__init__(
+            master,
+            fg_color=COLORS["toast_bg"],
+            corner_radius=8,
+        )
+
+        self.label = ctk.CTkLabel(
+            self,
+            text=message,
+            font=ctk.CTkFont(size=FONT_SIZES["toast"]),
+            text_color=COLORS["toast_text"],
+        )
+        self.label.pack(padx=16, pady=10)
+
+        # 画面下部中央に配置
+        self.place(relx=0.5, rely=0.9, anchor="center")
+
+        # 指定時間後に自動消去
+        self.after(duration, self._fade_out)
+
+    def _fade_out(self):
+        """フェードアウト"""
+        self.destroy()
+
+
+# =============================================================================
+# カスタムダイアログ
+# =============================================================================
+class CustomDialog(ctk.CTkToplevel):
+    """カスタムダイアログの基底クラス"""
+
+    def __init__(
+        self,
+        parent,
+        title: str,
+        icon: str,
+        message: str,
+        sub_message: str = "",
+        width: int = SIZES["dialog_width"],
+        height: int = 220,
+    ):
+        super().__init__(parent)
+
+        self.title(title)
+        self.geometry(f"{width}x{height}")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        # 中央に配置
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - width) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - height) // 2
+        self.geometry(f"+{x}+{y}")
+
+        # メインフレーム
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_frame.pack(expand=True, fill="both", padx=SIZES["padding"], pady=SIZES["padding"])
+
+        # アイコン
+        ctk.CTkLabel(
+            self.main_frame,
+            text=icon,
+            font=ctk.CTkFont(size=36),
+        ).pack(pady=(0, 8))
+
+        # メッセージ
+        ctk.CTkLabel(
+            self.main_frame,
+            text=message,
+            font=ctk.CTkFont(size=FONT_SIZES["dialog_title"], weight="bold"),
+            text_color=COLORS["text"],
+        ).pack(pady=(0, 4))
+
+        # サブメッセージ
+        if sub_message:
+            ctk.CTkLabel(
+                self.main_frame,
+                text=sub_message,
+                font=ctk.CTkFont(size=FONT_SIZES["dialog_body"]),
+                text_color=COLORS["text_secondary"],
+                wraplength=width - 48,
+            ).pack(pady=(0, 16))
+
+        # ボタンフレーム
+        self.button_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.button_frame.pack(fill="x", pady=(8, 0))
+
+        self.result = None
+
+    def add_button(
+        self,
+        text: str,
+        command: Callable,
+        primary: bool = False,
+        danger: bool = False,
+    ):
+        """ボタンを追加"""
+        if primary:
+            fg_color = COLORS["primary"]
+            hover_color = COLORS["primary_hover"]
+            text_color = "white"
+            border_width = 0
+            border_color = None
+        elif danger:
+            fg_color = "transparent"
+            hover_color = "#FFEBEE"
+            text_color = COLORS["danger"]
+            border_width = 1
+            border_color = COLORS["danger"]
+        else:
+            fg_color = "transparent"
+            hover_color = COLORS["drop_zone"]
+            text_color = COLORS["text"]
+            border_width = 1
+            border_color = COLORS["border"]
+
+        btn = ctk.CTkButton(
+            self.button_frame,
+            text=text,
+            font=ctk.CTkFont(size=FONT_SIZES["dialog_button"]),
+            height=SIZES["dialog_button_height"],
+            fg_color=fg_color,
+            hover_color=hover_color,
+            text_color=text_color,
+            border_width=border_width,
+            border_color=border_color,
+            command=command,
+        )
+        btn.pack(side="left", expand=True, fill="x", padx=4)
+        return btn
+
+
+# =============================================================================
+# メインアプリケーション
+# =============================================================================
 class BackgroundRemoverApp:
     """動画背景除去アプリケーションのメインクラス"""
 
-    def __init__(self, root):
-        """アプリケーションを初期化する
+    # 画面状態
+    STATE_INITIAL = "initial"
+    STATE_FILE_SELECTED = "file_selected"
+    STATE_PROCESSING = "processing"
+    STATE_COMPLETE = "complete"
 
-        Args:
-            root: CustomTkinterのルートウィンドウ
-        """
+    def __init__(self, root):
+        """アプリケーションを初期化する"""
         self.root = root
         self.root.title("動画背景除去ツール by META AI LABO")
-        self.root.geometry("520x580")
-        self.root.minsize(450, 500)
+        self.root.geometry(f"{SIZES['window_initial'][0]}x{SIZES['window_initial'][1]}")
+        self.root.minsize(SIZES["window_min"][0], SIZES["window_min"][1])
         self.root.resizable(True, True)
 
         # ライトモード固定
         ctk.set_appearance_mode("light")
-        ctk.set_default_color_theme("blue")
+        ctk.set_default_color_theme("green")
 
-        # 背景色を設定（TkinterDnD.Tk()の場合は通常のTkオプションを使用）
+        # 背景色を設定
         try:
             self.root.configure(fg_color=COLORS["bg"])
         except Exception:
             self.root.configure(bg=COLORS["bg"])
 
         # 状態変数
+        self.current_state = self.STATE_INITIAL
         self.input_path: str = ""
         self.output_path: str = ""
-        self.temp_output_path: str = ""  # 一時出力先
+        self.temp_output_path: str = ""
         self.is_processing: bool = False
         self.file_selected: bool = False
 
@@ -207,10 +450,15 @@ class BackgroundRemoverApp:
         self.model: RVMModel | None = None
         self.processor: VideoProcessor | None = None
 
-        # ロゴ画像を保持
+        # 画像を保持
         self.logo_image = None
-        # サムネイル画像を保持
         self.thumbnail_image = None
+        self.processed_thumbnail_image = None
+        self.checkerboard_image = None
+
+        # 動画情報
+        self.video_duration: float = 0
+        self.video_frame_count: int = 0
 
         # UIを構築
         self._setup_ui()
@@ -231,19 +479,18 @@ class BackgroundRemoverApp:
         try:
             if logo_path.exists():
                 img = Image.open(logo_path)
-                return ctk.CTkImage(light_image=img, size=(80, 80))
+                return ctk.CTkImage(light_image=img, size=(SIZES["logo_size"], SIZES["logo_size"]))
         except Exception:
             pass
         return None
 
-    def _extract_thumbnail(self, video_path: str, size: tuple = (160, 90)) -> ctk.CTkImage | None:
+    def _extract_thumbnail(self, video_path: str) -> ctk.CTkImage | None:
         """動画からサムネイルを抽出する"""
         try:
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 return None
 
-            # 最初のフレームを取得
             ret, frame = cap.read()
             cap.release()
 
@@ -252,254 +499,463 @@ class BackgroundRemoverApp:
 
             # BGRからRGBに変換
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            # PILイメージに変換
             img = Image.fromarray(frame_rgb)
 
-            # アスペクト比を維持してリサイズ
-            img.thumbnail((size[0] * 2, size[1] * 2), Image.Resampling.LANCZOS)
+            # サムネイルサイズを計算
+            width = min(SIZES["thumbnail_max_width"], self.root.winfo_width() - SIZES["padding"] * 2)
+            height = int(width / SIZES["thumbnail_aspect_ratio"])
 
-            # CTkImageとして返す
-            return ctk.CTkImage(light_image=img, size=size)
+            # アスペクト比を維持してリサイズ
+            img = img.resize((width, height), Image.Resampling.LANCZOS)
+
+            return ctk.CTkImage(light_image=img, size=(width, height))
 
         except Exception:
             return None
 
+    def _extract_processed_thumbnail(self, video_path: str) -> ctk.CTkImage | None:
+        """処理済み動画からサムネイルを抽出（グリーンバック背景）
+
+        ProRes 4444のアルファチャンネルはOpenCVで読めないため、
+        ffmpegでPNGとして抽出する
+        """
+        try:
+            # サムネイルサイズを計算
+            width = min(SIZES["thumbnail_max_width"], self.root.winfo_width() - SIZES["padding"] * 2)
+            height = int(width / SIZES["thumbnail_aspect_ratio"])
+
+            # 一時ファイルにPNGとして抽出（ffmpegでアルファチャンネル対応）
+            temp_png = tempfile.mktemp(suffix=".png")
+
+            # ffmpegのパスを取得
+            ffmpeg_path = self._get_ffmpeg_path()
+
+            # ffmpegで最初のフレームをPNGとして抽出（アルファチャンネル付き）
+            cmd = [
+                ffmpeg_path,
+                "-i", video_path,
+                "-vframes", "1",
+                "-y",
+                temp_png,
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0 or not Path(temp_png).exists():
+                # ffmpegが失敗した場合はOpenCVにフォールバック
+                return self._extract_processed_thumbnail_fallback(video_path, width, height)
+
+            # PNGを読み込み（アルファチャンネル付き）
+            img = Image.open(temp_png).convert("RGBA")
+
+            # 一時ファイルを削除
+            try:
+                os.remove(temp_png)
+            except Exception:
+                pass
+
+            # アスペクト比を維持してリサイズ
+            img = img.resize((width, height), Image.Resampling.LANCZOS)
+
+            # グリーンバック背景を作成（#00FF00）
+            green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+
+            # グリーンバックの上に処理済み画像を合成
+            green_bg.paste(img, (0, 0), img)
+
+            return ctk.CTkImage(light_image=green_bg, size=(width, height))
+
+        except Exception:
+            return None
+
+    def _extract_processed_thumbnail_fallback(self, video_path: str, width: int, height: int) -> ctk.CTkImage | None:
+        """OpenCVを使ったフォールバック（アルファなし）"""
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                return None
+
+            ret, frame = cap.read()
+            cap.release()
+
+            if not ret:
+                return None
+
+            # BGRからRGBに変換
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(frame_rgb)
+
+            # アスペクト比を維持してリサイズ
+            img = img.resize((width, height), Image.Resampling.LANCZOS)
+
+            # グリーンバック背景を作成（#00FF00）
+            green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+
+            # 画像を合成（アルファなしなのでそのまま）
+            green_bg.paste(img.convert("RGBA"), (0, 0))
+
+            return ctk.CTkImage(light_image=green_bg, size=(width, height))
+
+        except Exception:
+            return None
+
+    def _get_ffmpeg_path(self) -> str:
+        """ffmpegのパスを取得"""
+        if getattr(sys, "frozen", False):
+            # PyInstallerでパッケージ化された場合
+            base_path = Path(sys._MEIPASS)
+            if sys.platform == "win32":
+                ffmpeg_path = base_path / "ffmpeg" / "ffmpeg.exe"
+            else:
+                ffmpeg_path = base_path / "ffmpeg" / "ffmpeg"
+            if ffmpeg_path.exists():
+                return str(ffmpeg_path)
+
+        # システムのffmpegを使用
+        return "ffmpeg"
+
     def _setup_ui(self) -> None:
         """UIを構築する"""
-        # メインフレーム
-        main_frame = ctk.CTkFrame(self.root, fg_color=COLORS["bg"])
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        # メインフレーム（最大幅制限 + 中央配置）
+        self.outer_frame = ctk.CTkFrame(self.root, fg_color=COLORS["bg"])
+        self.outer_frame.pack(fill="both", expand=True)
 
-        # ヘッダー部分（ロゴ＋タイトル）
-        header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        header_frame.pack(fill="x", pady=(0, 15))
+        self.main_frame = ctk.CTkFrame(
+            self.outer_frame,
+            fg_color=COLORS["bg"],
+            width=SIZES["content_max_width"],
+        )
+        self.main_frame.pack(fill="both", expand=True, padx=SIZES["padding"], pady=SIZES["padding"])
+
+        # ヘッダー部分（ロゴ左配置 + タイトル）
+        self._setup_header()
+
+        # コンテンツエリア
+        self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True, pady=(16, 0))
+
+        # ドロップゾーン
+        self._setup_drop_zone()
+
+        # サムネイル表示エリア（初期は非表示）
+        self._setup_thumbnail_area()
+
+        # ボタンエリア
+        self._setup_buttons()
+
+        # フッター
+        self._setup_footer()
+
+        # 初期状態を設定
+        self._update_ui_state()
+
+    def _setup_header(self) -> None:
+        """ヘッダーを設定"""
+        header_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        header_frame.pack(fill="x")
+
+        # ロゴとタイトルの横並びフレーム
+        title_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        title_row.pack(anchor="w")
 
         # ロゴ
         self.logo_image = self._load_logo()
         if self.logo_image:
-            logo_label = ctk.CTkLabel(header_frame, image=self.logo_image, text="")
-            logo_label.pack(pady=(0, 8))
+            logo_label = ctk.CTkLabel(title_row, image=self.logo_image, text="")
+            logo_label.pack(side="left", padx=(0, 12))
 
-        # タイトル
-        title_label = ctk.CTkLabel(
-            header_frame,
+        # タイトル部分
+        title_text_frame = ctk.CTkFrame(title_row, fg_color="transparent")
+        title_text_frame.pack(side="left")
+
+        ctk.CTkLabel(
+            title_text_frame,
             text="動画背景除去ツール",
-            font=ctk.CTkFont(size=20, weight="bold"),
+            font=ctk.CTkFont(size=FONT_SIZES["title"], weight="bold"),
             text_color=COLORS["text"],
-        )
-        title_label.pack()
+        ).pack(anchor="w")
 
-        subtitle_label = ctk.CTkLabel(
-            header_frame,
+        ctk.CTkLabel(
+            title_text_frame,
             text="by META AI LABO",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=FONT_SIZES["subtitle"]),
             text_color=COLORS["text_secondary"],
-        )
-        subtitle_label.pack()
+        ).pack(anchor="w")
 
-        # ドロップゾーン（カード風）
-        self.drop_card = CTkDnDFrame(
-            main_frame,
+    def _setup_drop_zone(self) -> None:
+        """ドロップゾーンを設定"""
+        self.drop_zone_frame = ctk.CTkFrame(
+            self.content_frame,
             fg_color=COLORS["drop_zone"],
             corner_radius=12,
             border_width=2,
             border_color=COLORS["border"],
         )
-        self.drop_card.pack(fill="x", pady=10, ipady=25)
 
-        # ドロップゾーン内のコンテンツ
-        self.drop_content = ctk.CTkFrame(self.drop_card, fg_color="transparent")
-        self.drop_content.pack(expand=True, fill="both", padx=20, pady=10)
+        drop_content = ctk.CTkFrame(self.drop_zone_frame, fg_color="transparent")
+        drop_content.pack(expand=True, fill="both", padx=20, pady=40)
 
-        # ファイルアイコン（初期表示）
+        # アイコン
         self.drop_icon_label = ctk.CTkLabel(
-            self.drop_content,
+            drop_content,
             text="📁",
-            font=ctk.CTkFont(size=36),
+            font=ctk.CTkFont(size=48),
         )
-        self.drop_icon_label.pack(pady=(5, 5))
+        self.drop_icon_label.pack(pady=(0, 12))
 
-        # サムネイル表示用ラベル（初期は非表示）
-        self.thumbnail_label = ctk.CTkLabel(
-            self.drop_content,
-            text="",
-            image=None,
-        )
-
+        # テキスト
         self.drop_text_label = ctk.CTkLabel(
-            self.drop_content,
-            text="動画ファイルをドラッグ＆ドロップ\nまたはクリックして選択",
-            font=ctk.CTkFont(size=13),
+            drop_content,
+            text="動画をドラッグ＆ドロップ\nまたは クリック",
+            font=ctk.CTkFont(size=FONT_SIZES["filename"]),
             text_color=COLORS["text_secondary"],
             justify="center",
         )
         self.drop_text_label.pack()
 
+        # 対応形式
         self.drop_hint_label = ctk.CTkLabel(
-            self.drop_content,
+            drop_content,
             text=".mp4  .mov  .m4v",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=FONT_SIZES["hint"]),
             text_color=COLORS["text_secondary"],
         )
-        self.drop_hint_label.pack(pady=(5, 0))
+        self.drop_hint_label.pack(pady=(8, 0))
 
-        # ドロップゾーンをクリック可能に
-        self.drop_card.bind("<Button-1>", lambda e: self._select_input())
-        for widget in [self.drop_content, self.drop_icon_label, self.drop_text_label, self.drop_hint_label, self.thumbnail_label]:
+        # クリックイベント
+        for widget in [self.drop_zone_frame, drop_content, self.drop_icon_label, self.drop_text_label, self.drop_hint_label]:
             widget.bind("<Button-1>", lambda e: self._select_input())
 
-        # ドラッグ＆ドロップの設定
-        self.drop_card.configure_dnd(
-            on_drop=self._on_drop,
-            on_drag_enter=self._on_drag_enter,
-            on_drag_leave=self._on_drag_leave,
+        # ドラッグ＆ドロップ
+        if HAS_DND:
+            self.drop_zone_frame.drop_target_register(DND_FILES)
+            self.drop_zone_frame.dnd_bind("<<Drop>>", self._on_drop)
+            self.drop_zone_frame.dnd_bind("<<DragEnter>>", self._on_drag_enter)
+            self.drop_zone_frame.dnd_bind("<<DragLeave>>", self._on_drag_leave)
+
+    def _setup_thumbnail_area(self) -> None:
+        """サムネイル表示エリアを設定"""
+        self.thumbnail_frame = ctk.CTkFrame(
+            self.content_frame,
+            fg_color=COLORS["card"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["border"],
         )
 
-        # ファイル情報フレーム（初期は非表示）
-        self.file_info_frame = ctk.CTkFrame(
-            main_frame, fg_color=COLORS["card"], corner_radius=10
-        )
-
-        # 出力先フレーム（ファイル情報内）
-        self.output_frame = ctk.CTkFrame(self.file_info_frame, fg_color="transparent")
-
-        # 動画情報ラベル
-        self.video_info_label = ctk.CTkLabel(
-            self.file_info_frame,
+        # サムネイル画像
+        self.thumbnail_label = ctk.CTkLabel(
+            self.thumbnail_frame,
             text="",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"],
+            image=None,
+        )
+        self.thumbnail_label.pack(pady=(16, 8))
+
+        # 円形プログレス（サムネイル上にオーバーレイ、初期は非表示）
+        self.progress_overlay = ctk.CTkFrame(
+            self.thumbnail_frame,
+            fg_color="transparent",
         )
 
-        # 出力先ラベルとボタン
-        output_label = ctk.CTkLabel(
-            self.output_frame,
-            text="出力:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"],
-        )
-        output_label.pack(side="left")
+        self.circular_progress = CircularProgress(self.progress_overlay)
+        self.circular_progress.pack()
 
-        self.output_name_label = ctk.CTkLabel(
-            self.output_frame,
+        # ファイル名
+        self.filename_label = ctk.CTkLabel(
+            self.thumbnail_frame,
             text="",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=FONT_SIZES["filename"]),
             text_color=COLORS["text"],
         )
-        self.output_name_label.pack(side="left", padx=(5, 10))
+        self.filename_label.pack(pady=(8, 4))
 
-        change_btn = ctk.CTkButton(
-            self.output_frame,
-            text="変更",
-            width=50,
-            height=24,
-            font=ctk.CTkFont(size=11),
-            fg_color="transparent",
-            text_color=COLORS["primary"],
-            hover_color=COLORS["drop_zone_hover"],
-            command=self._select_output,
-        )
-        change_btn.pack(side="left")
-
-        # プログレスフレーム（円形プログレス）
-        self.progress_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        self.progress_frame.pack(fill="x", pady=10)
-
-        # 円形プログレス
-        self.circular_progress = CircularProgress(
-            self.progress_frame,
-            size=120,
-            line_width=8,
-            progress_color=COLORS["primary"],
-            bg_color=COLORS["border"],
-        )
-        self.circular_progress.pack(pady=(10, 5))
-
-        self.progress_label = ctk.CTkLabel(
-            self.progress_frame,
+        # 動画情報
+        self.video_info_label = ctk.CTkLabel(
+            self.thumbnail_frame,
             text="",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=FONT_SIZES["video_info"]),
             text_color=COLORS["text_secondary"],
         )
-        self.progress_label.pack(fill="x")
+        self.video_info_label.pack(pady=(0, 4))
 
-        # プログレスフレームを初期は非表示
-        self.progress_frame.pack_forget()
+        # 完了メッセージ（初期は非表示）
+        self.complete_label = ctk.CTkLabel(
+            self.thumbnail_frame,
+            text="✅ 完了!",
+            font=ctk.CTkFont(size=FONT_SIZES["dialog_title"], weight="bold"),
+            text_color=COLORS["success"],
+        )
 
-        # ボタンフレーム
-        button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        button_frame.pack(fill="x", pady=15)
+        # サムネイルエリアもクリック可能に（ファイル選択）
+        self.thumbnail_frame.bind("<Button-1>", lambda e: self._on_thumbnail_click())
+        self.thumbnail_label.bind("<Button-1>", lambda e: self._on_thumbnail_click())
 
-        # メインボタン
-        self.process_button = ctk.CTkButton(
-            button_frame,
-            text="🚀 背景を除去",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=45,
-            corner_radius=8,
+    def _setup_buttons(self) -> None:
+        """ボタンを設定"""
+        self.button_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.button_frame.pack(fill="x", pady=(16, 0))
+
+        # メインボタン（背景を除去する / ファイルを保存）
+        self.main_button = ctk.CTkButton(
+            self.button_frame,
+            text="🚀 背景を除去する",
+            font=ctk.CTkFont(size=FONT_SIZES["button"], weight="bold"),
+            height=SIZES["button_height"],
             fg_color=COLORS["primary"],
             hover_color=COLORS["primary_hover"],
-            command=self._start_processing,
-            state="disabled",
-        )
-        self.process_button.pack(fill="x", pady=(0, 8))
-
-        # キャンセルボタン
-        self.cancel_button = ctk.CTkButton(
-            button_frame,
-            text="キャンセル",
-            font=ctk.CTkFont(size=13),
-            height=38,
+            text_color="white",
             corner_radius=8,
+            command=self._on_main_button_click,
+        )
+        self.main_button.pack(fill="x", pady=(0, 8))
+
+        # キャンセルボタン（処理中のみ表示）
+        self.cancel_button = ctk.CTkButton(
+            self.button_frame,
+            text="キャンセル",
+            font=ctk.CTkFont(size=FONT_SIZES["button"]),
+            height=SIZES["button_height"],
             fg_color="transparent",
+            hover_color="#FFEBEE",
             text_color=COLORS["danger"],
             border_width=1,
             border_color=COLORS["danger"],
-            hover_color="#fee2e2",
-            command=self._cancel_processing,
-            state="disabled",
+            corner_radius=8,
+            command=self._on_cancel_click,
         )
-        self.cancel_button.pack(fill="x")
 
-        # キャンセルボタンは初期非表示
-        self.cancel_button.pack_forget()
+        # リンク（別の動画を選択 / やり直す）
+        self.link_frame = ctk.CTkFrame(self.button_frame, fg_color="transparent")
+        self.link_frame.pack(fill="x", pady=(8, 0))
 
-        # フッター（デバイス情報）
-        footer_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        footer_frame.pack(fill="x", side="bottom", pady=(10, 0))
+        self.select_another_link = ctk.CTkButton(
+            self.link_frame,
+            text="別の動画を選択",
+            font=ctk.CTkFont(size=FONT_SIZES["video_info"]),
+            fg_color="transparent",
+            hover_color=COLORS["drop_zone"],
+            text_color=COLORS["primary_dark"],
+            command=self._select_input,
+        )
 
-        device_icon = "💻" if not self.device_info.is_gpu else "⚡"
-        device_color = COLORS["success"] if self.device_info.is_gpu else COLORS["warning"]
+        self.retry_link = ctk.CTkButton(
+            self.link_frame,
+            text="やり直す",
+            font=ctk.CTkFont(size=FONT_SIZES["video_info"]),
+            fg_color="transparent",
+            hover_color=COLORS["drop_zone"],
+            text_color=COLORS["primary_dark"],
+            command=self._on_retry,
+        )
+
+        self.process_another_link = ctk.CTkButton(
+            self.link_frame,
+            text="別の動画を処理",
+            font=ctk.CTkFont(size=FONT_SIZES["video_info"]),
+            fg_color="transparent",
+            hover_color=COLORS["drop_zone"],
+            text_color=COLORS["primary_dark"],
+            command=self._on_process_another,
+        )
+
+    def _setup_footer(self) -> None:
+        """フッターを設定"""
+        footer_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        footer_frame.pack(fill="x", side="bottom", pady=(16, 0))
+
+        device_icon = "⚡" if self.device_info.is_gpu else "💻"
         speed_text = "高速処理" if self.device_info.is_gpu else "標準処理"
 
-        device_label = ctk.CTkLabel(
+        ctk.CTkLabel(
             footer_frame,
             text=f"{device_icon} {self.device_info.name} - {speed_text}",
-            font=ctk.CTkFont(size=11),
-            text_color=device_color,
-        )
-        device_label.pack()
+            font=ctk.CTkFont(size=FONT_SIZES["footer"]),
+            text_color=COLORS["success"] if self.device_info.is_gpu else COLORS["warning"],
+        ).pack()
+
+    def _update_ui_state(self) -> None:
+        """現在の状態に応じてUIを更新"""
+        # 全要素を非表示
+        self.drop_zone_frame.pack_forget()
+        self.thumbnail_frame.pack_forget()
+        self.main_button.pack_forget()
+        self.cancel_button.pack_forget()
+        self.link_frame.pack_forget()
+        self.select_another_link.pack_forget()
+        self.retry_link.pack_forget()
+        self.process_another_link.pack_forget()
+        self.progress_overlay.place_forget()
+        self.complete_label.pack_forget()
+
+        if self.current_state == self.STATE_INITIAL:
+            # 初期状態：ドロップゾーン + グレーアウトのボタン（背景色グレー）
+            self.drop_zone_frame.pack(fill="both", expand=True)
+            self.main_button.configure(
+                text="🚀 背景を除去する",
+                state="disabled",
+                fg_color="#BDBDBD",  # グレー背景
+            )
+            self.main_button.pack(fill="x", pady=(16, 0))
+
+        elif self.current_state == self.STATE_FILE_SELECTED:
+            # ファイル選択後
+            self.thumbnail_frame.pack(fill="both", expand=True)
+            self.main_button.configure(
+                text="🚀 背景を除去する",
+                state="normal",
+                fg_color=COLORS["primary"],  # 緑に戻す
+            )
+            self.main_button.pack(fill="x", pady=(0, 8))
+            self.link_frame.pack(fill="x", pady=(8, 0))
+            self.select_another_link.pack(side="left", expand=True)
+
+        elif self.current_state == self.STATE_PROCESSING:
+            # 処理中
+            self.thumbnail_frame.pack(fill="both", expand=True)
+            # 円形プログレスをサムネイル上にオーバーレイ
+            self.progress_overlay.place(relx=0.5, rely=0.35, anchor="center")
+            self.cancel_button.pack(fill="x")
+
+        elif self.current_state == self.STATE_COMPLETE:
+            # 処理完了
+            self.thumbnail_frame.pack(fill="both", expand=True)
+            self.complete_label.pack(pady=(0, 16))
+            self.main_button.configure(
+                text="💾 ファイルを保存",
+                state="normal",
+                fg_color=COLORS["primary"],  # 緑に戻す
+            )
+            self.main_button.pack(fill="x", pady=(0, 8))
+            self.link_frame.pack(fill="x", pady=(8, 0))
+            self.retry_link.pack(side="left", expand=True)
+            self.process_another_link.pack(side="left", expand=True)
 
     def _on_drop(self, event) -> None:
         """ファイルがドロップされたときの処理"""
         data = event.data
-
         if data.startswith("{"):
             path = data.strip("{}")
         else:
             path = data.split()[0] if " " in data else data
 
         self._reset_drop_zone()
-        self._set_input_file(path)
+
+        # 既にファイルが選択されている場合はトースト表示
+        if self.file_selected:
+            self._set_input_file(path, show_toast=True)
+        else:
+            self._set_input_file(path)
 
     def _on_drag_enter(self, event) -> None:
         """ドラッグがドロップゾーンに入ったときの処理"""
-        self.drop_card.configure(
+        self.drop_zone_frame.configure(
             fg_color=COLORS["drop_zone_hover"],
             border_color=COLORS["primary"],
         )
-        self.drop_text_label.configure(text_color=COLORS["primary"])
 
     def _on_drag_leave(self, event) -> None:
         """ドラッグがドロップゾーンから出たときの処理"""
@@ -507,80 +963,15 @@ class BackgroundRemoverApp:
 
     def _reset_drop_zone(self) -> None:
         """ドロップゾーンを初期状態に戻す"""
-        if self.file_selected:
-            self.drop_card.configure(
-                fg_color="#f0fdf4",  # 緑がかった背景
-                border_color=COLORS["success"],
-            )
-        else:
-            self.drop_card.configure(
-                fg_color=COLORS["drop_zone"],
-                border_color=COLORS["border"],
-            )
-            self.drop_text_label.configure(text_color=COLORS["text_secondary"])
-
-    def _set_input_file(self, path: str) -> None:
-        """入力ファイルを設定する"""
-        if not path:
-            return
-
-        if not is_supported_video(path):
-            self._show_error(
-                "サポートされていない形式です。\n"
-                f"対応形式: {', '.join(SUPPORTED_INPUT_EXTENSIONS)}"
-            )
-            return
-
-        self.input_path = path
-        self.file_selected = True
-        filename = Path(path).name
-
-        # 出力パスを自動設定
-        self.output_path = get_output_path(path)
-        output_name = Path(self.output_path).name
-
-        # サムネイルを抽出して表示
-        self.thumbnail_image = self._extract_thumbnail(path, size=(160, 90))
-        if self.thumbnail_image:
-            self.drop_icon_label.pack_forget()
-            self.thumbnail_label.configure(image=self.thumbnail_image)
-            self.thumbnail_label.pack(pady=(5, 5))
-        else:
-            # サムネイル抽出失敗時はアイコンを更新
-            self.drop_icon_label.configure(text="✅")
-
-        # ドロップゾーンを更新
-        self.drop_text_label.configure(
-            text=filename,
-            text_color=COLORS["success"],
-        )
-        self.drop_hint_label.configure(text="別のファイルをドロップして変更")
-        self.drop_card.configure(
-            fg_color="#f0fdf4",
-            border_color=COLORS["success"],
+        self.drop_zone_frame.configure(
+            fg_color=COLORS["drop_zone"],
+            border_color=COLORS["border"],
         )
 
-        # 動画情報を取得して表示
-        try:
-            info = get_video_info(path)
-            info_text = (
-                f"📹 {info.width}x{info.height} | {info.fps:.1f}fps | "
-                f"{format_time(info.duration)} ({info.frame_count}フレーム)"
-            )
-            self.video_info_label.configure(text=info_text)
-        except ValueError as e:
-            self.video_info_label.configure(text=str(e))
-
-        # 出力名を設定
-        self.output_name_label.configure(text=output_name)
-
-        # ファイル情報フレームを表示
-        self.file_info_frame.pack(fill="x", pady=10, padx=5)
-        self.video_info_label.pack(fill="x", padx=15, pady=(10, 5))
-        self.output_frame.pack(fill="x", padx=15, pady=(0, 10))
-
-        # 処理ボタンを有効化
-        self.process_button.configure(state="normal")
+    def _on_thumbnail_click(self) -> None:
+        """サムネイルエリアがクリックされたときの処理"""
+        if self.current_state == self.STATE_FILE_SELECTED:
+            self._select_input()
 
     def _select_input(self) -> None:
         """入力ファイルを選択する"""
@@ -597,49 +988,89 @@ class BackgroundRemoverApp:
         )
 
         if path:
-            self._set_input_file(path)
+            show_toast = self.file_selected
+            self._set_input_file(path, show_toast=show_toast)
 
-    def _select_output(self) -> None:
-        """出力先を選択する"""
-        if not self.input_path:
-            self._show_warning("先に入力ファイルを選択してください。")
+    def _set_input_file(self, path: str, show_toast: bool = False) -> None:
+        """入力ファイルを設定する"""
+        if not path:
             return
 
-        default_name = Path(self.output_path).name if self.output_path else "output.mov"
+        if not is_supported_video(path):
+            self._show_error_dialog(
+                "サポートされていない形式です",
+                f"対応形式: {', '.join(SUPPORTED_INPUT_EXTENSIONS)}"
+            )
+            return
 
-        path = ctk.filedialog.asksaveasfilename(
-            title="出力先を選択",
-            defaultextension=".mov",
-            initialfile=default_name,
-            filetypes=[("MOV (ProRes 4444)", "*.mov")],
-        )
+        self.input_path = path
+        self.file_selected = True
+        filename = Path(path).name
 
-        if path:
-            self.output_path = path
-            self.output_name_label.configure(text=Path(path).name)
+        # 動画情報を取得
+        try:
+            info = get_video_info(path)
+            self.video_duration = info.duration
+            self.video_frame_count = info.frame_count
+            duration_text = f"{format_time(info.duration)}の動画"
+        except Exception:
+            duration_text = ""
+
+        # サムネイルを抽出
+        self.thumbnail_image = self._extract_thumbnail(path)
+        if self.thumbnail_image:
+            self.thumbnail_label.configure(image=self.thumbnail_image)
+
+        # ラベルを更新
+        self.filename_label.configure(text=filename)
+        self.video_info_label.configure(text=duration_text)
+
+        # 状態を更新
+        self.current_state = self.STATE_FILE_SELECTED
+        self._update_ui_state()
+
+        # トースト表示
+        if show_toast:
+            Toast(self.root, "📁 動画を変更しました")
+
+    def _on_main_button_click(self) -> None:
+        """メインボタンがクリックされたときの処理"""
+        if self.current_state == self.STATE_FILE_SELECTED:
+            self._start_processing()
+        elif self.current_state == self.STATE_COMPLETE:
+            self._save_output_file()
+
+    def _on_cancel_click(self) -> None:
+        """キャンセルボタンがクリックされたときの処理"""
+        self._show_cancel_confirm_dialog()
+
+    def _on_retry(self) -> None:
+        """やり直しリンクがクリックされたときの処理"""
+        self.current_state = self.STATE_FILE_SELECTED
+        self._update_ui_state()
+
+    def _on_process_another(self) -> None:
+        """別の動画を処理リンクがクリックされたときの処理"""
+        self.input_path = ""
+        self.file_selected = False
+        self.thumbnail_image = None
+        self.processed_thumbnail_image = None
+        self.current_state = self.STATE_INITIAL
+        self._update_ui_state()
 
     def _start_processing(self) -> None:
         """処理を開始する"""
         if self.is_processing:
             return
 
-        if not self.input_path:
-            self._show_warning("入力ファイルを選択してください。")
-            return
-
         self.is_processing = True
-        self.process_button.configure(state="disabled")
+        self.current_state = self.STATE_PROCESSING
+        self._update_ui_state()
 
-        # キャンセルボタンを表示
-        self.cancel_button.pack(fill="x")
-        self.cancel_button.configure(state="normal")
+        # 円形プログレスをリセット
+        self.circular_progress.reset()
 
-        # プログレスフレームを表示
-        self.progress_frame.pack(fill="x", pady=10)
-        self.circular_progress.set(0)
-        self.progress_label.configure(text="モデルを読み込み中...")
-
-        # 一時出力先を設定（処理完了後にユーザーが保存先を選択）
+        # 一時出力先を設定
         self.temp_output_path = tempfile.mktemp(suffix=".mov")
 
         # 別スレッドで処理
@@ -647,21 +1078,12 @@ class BackgroundRemoverApp:
         thread.daemon = True
         thread.start()
 
-    def _cancel_processing(self) -> None:
-        """処理をキャンセルする"""
-        if not self.is_processing:
-            return
-
-        if self.processor:
-            self.processor.cancel()
-            self.progress_label.configure(text="キャンセル中...")
-            self.cancel_button.configure(state="disabled")
-
     def _process_video(self) -> None:
         """動画を処理する（別スレッドで実行）"""
         try:
             # モデルをロード（初回のみ）
             if self.model is None:
+                self._update_progress_text("モデルを読み込み中...")
                 self.model = RVMModel()
                 try:
                     self.model.load()
@@ -672,8 +1094,7 @@ class BackgroundRemoverApp:
 
                 self.processor = VideoProcessor(self.model)
 
-            # 処理を実行（一時ファイルに出力）
-            self._update_progress_text("処理中...")
+            # 処理を実行
             self.processor.process(
                 input_path=self.input_path,
                 output_path=self.temp_output_path,
@@ -692,97 +1113,59 @@ class BackgroundRemoverApp:
     def _on_progress(self, current: int, total: int) -> None:
         """進捗を更新する"""
         progress = current / total
-        self.root.after(0, lambda: self._update_progress(progress, current, total))
-
-    def _update_progress(self, progress: float, current: int, total: int) -> None:
-        """進捗UIを更新する"""
-        self.circular_progress.set(progress)
-        self.progress_label.configure(text=f"{current}/{total} フレーム")
+        self.root.after(0, lambda: self.circular_progress.set(progress, current, total))
 
     def _update_progress_text(self, text: str) -> None:
         """進捗テキストを更新する"""
-        self.root.after(0, lambda: self.progress_label.configure(text=text))
+        self.root.after(0, lambda: self.circular_progress.frame_label.configure(text=text))
 
     def _on_complete(self) -> None:
         """処理完了時の処理"""
-
         def complete():
             self.is_processing = False
-            self.process_button.configure(state="normal")
-            self.cancel_button.configure(state="disabled")
-            self.cancel_button.pack_forget()
-            self.circular_progress.set(1.0)
-            self.progress_label.configure(text="✅ 完了!")
 
-            # 完了ダイアログ
-            dialog = ctk.CTkToplevel(self.root)
-            dialog.title("完了")
-            dialog.geometry("400x220")
-            dialog.resizable(False, False)
-            dialog.transient(self.root)
-            dialog.grab_set()
+            # 処理済みサムネイルを取得（市松模様背景）
+            self.processed_thumbnail_image = self._extract_processed_thumbnail(self.temp_output_path)
+            if self.processed_thumbnail_image:
+                self.thumbnail_label.configure(image=self.processed_thumbnail_image)
 
-            # 中央に配置
-            dialog.update_idletasks()
-            x = self.root.winfo_x() + (self.root.winfo_width() - 400) // 2
-            y = self.root.winfo_y() + (self.root.winfo_height() - 220) // 2
-            dialog.geometry(f"+{x}+{y}")
-
-            frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            frame.pack(expand=True, fill="both", padx=20, pady=20)
-
-            ctk.CTkLabel(
-                frame,
-                text="✅",
-                font=ctk.CTkFont(size=36),
-            ).pack()
-
-            ctk.CTkLabel(
-                frame,
-                text="背景除去が完了しました",
-                font=ctk.CTkFont(size=14, weight="bold"),
-            ).pack(pady=(5, 5))
-
-            ctk.CTkLabel(
-                frame,
-                text="保存先を選択してください",
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_secondary"],
-            ).pack(pady=(0, 10))
-
-            btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
-            btn_frame.pack(fill="x")
-
-            ctk.CTkButton(
-                btn_frame,
-                text="📁 保存先を選択",
-                command=lambda: self._save_output_file(dialog),
-                fg_color=COLORS["primary"],
-                height=38,
-            ).pack(fill="x", pady=(0, 8))
-
-            ctk.CTkButton(
-                btn_frame,
-                text="キャンセル（保存しない）",
-                command=lambda: self._cancel_save(dialog),
-                fg_color="transparent",
-                text_color=COLORS["text_secondary"],
-                border_width=1,
-                border_color=COLORS["border"],
-                height=32,
-            ).pack(fill="x")
+            self.current_state = self.STATE_COMPLETE
+            self._update_ui_state()
 
         self.root.after(0, complete)
 
-    def _save_output_file(self, dialog) -> None:
-        """出力ファイルを保存する"""
-        import shutil
+    def _on_cancelled(self) -> None:
+        """キャンセル時の処理"""
+        def handle_cancelled():
+            self.is_processing = False
 
-        # デフォルトのファイル名を取得
+            # 一時ファイルを削除
+            if self.temp_output_path and Path(self.temp_output_path).exists():
+                try:
+                    os.remove(self.temp_output_path)
+                except Exception:
+                    pass
+
+            self.current_state = self.STATE_FILE_SELECTED
+            self._update_ui_state()
+
+        self.root.after(0, handle_cancelled)
+
+    def _on_error(self, error_message: str) -> None:
+        """エラー発生時の処理"""
+        def handle_error():
+            self.is_processing = False
+            self.current_state = self.STATE_FILE_SELECTED
+            self._update_ui_state()
+            self._show_error_dialog("エラーが発生しました", error_message)
+
+        self.root.after(0, handle_error)
+
+    def _save_output_file(self) -> None:
+        """出力ファイルを保存する"""
         input_name = Path(self.input_path).stem
         default_name = f"{input_name}_nobg.mov"
 
-        # 保存先を選択
         save_path = ctk.filedialog.asksaveasfilename(
             title="保存先を選択",
             defaultextension=".mov",
@@ -792,200 +1175,93 @@ class BackgroundRemoverApp:
 
         if save_path:
             try:
-                # 一時ファイルから保存先にコピー
                 shutil.move(self.temp_output_path, save_path)
                 self.output_path = save_path
-                dialog.destroy()
-
-                # 保存完了通知
                 self._show_save_complete_dialog(save_path)
             except Exception as e:
-                self._show_error(f"ファイルの保存に失敗しました:\n{str(e)}")
+                self._show_error_dialog("ファイルの保存に失敗しました", str(e))
 
-    def _cancel_save(self, dialog) -> None:
-        """保存をキャンセルする"""
-        import os
+    # =========================================================================
+    # ダイアログ
+    # =========================================================================
+    def _show_gpu_warning(self) -> None:
+        """GPU警告ダイアログを表示"""
+        dialog = CustomDialog(
+            self.root,
+            title="警告",
+            icon="⚠️",
+            message="GPUが検出されませんでした",
+            sub_message="処理は可能ですが、非常に時間がかかります（数時間〜）",
+            height=240,
+        )
+        dialog.add_button("了解", dialog.destroy, primary=True)
 
-        # 一時ファイルを削除
-        if self.temp_output_path and Path(self.temp_output_path).exists():
-            try:
-                os.remove(self.temp_output_path)
-            except Exception:
-                pass
+    def _show_error_dialog(self, title: str, message: str) -> None:
+        """エラーダイアログを表示"""
+        dialog = CustomDialog(
+            self.root,
+            title="エラー",
+            icon="❌",
+            message=title,
+            sub_message=message,
+        )
+        dialog.add_button("閉じる", dialog.destroy, primary=True)
 
-        dialog.destroy()
-        self._show_info("保存がキャンセルされました。\n処理結果は破棄されました。")
+    def _show_cancel_confirm_dialog(self) -> None:
+        """キャンセル確認ダイアログを表示"""
+        dialog = CustomDialog(
+            self.root,
+            title="確認",
+            icon="⚠️",
+            message="処理をキャンセルしますか？",
+            sub_message="進行中の処理は破棄されます",
+        )
+
+        def on_continue():
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+            if self.processor:
+                self.processor.cancel()
+
+        dialog.add_button("続ける", on_continue, primary=True)
+        dialog.add_button("キャンセル", on_cancel, danger=True)
 
     def _show_save_complete_dialog(self, save_path: str) -> None:
         """保存完了ダイアログを表示"""
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("保存完了")
-        dialog.geometry("380x180")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        # 中央に配置
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - 380) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - 180) // 2
-        dialog.geometry(f"+{x}+{y}")
-
-        frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame.pack(expand=True, fill="both", padx=20, pady=20)
-
-        ctk.CTkLabel(
-            frame,
-            text="💾",
-            font=ctk.CTkFont(size=36),
-        ).pack()
-
-        ctk.CTkLabel(
-            frame,
-            text="ファイルを保存しました",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(pady=(5, 5))
-
-        # ファイル名を表示
         filename = Path(save_path).name
-        ctk.CTkLabel(
-            frame,
-            text=filename,
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_secondary"],
-        ).pack(pady=(0, 10))
-
-        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        btn_frame.pack(fill="x")
-
-        ctk.CTkButton(
-            btn_frame,
-            text="フォルダを開く",
-            command=lambda: self._open_folder_and_close(save_path, dialog),
-            fg_color=COLORS["primary"],
-        ).pack(side="left", expand=True, padx=(0, 5))
-
-        ctk.CTkButton(
-            btn_frame,
-            text="閉じる",
-            command=dialog.destroy,
-            fg_color="transparent",
-            text_color=COLORS["text"],
-            border_width=1,
-            border_color=COLORS["border"],
-        ).pack(side="left", expand=True, padx=(5, 0))
-
-    def _open_folder_and_close(self, file_path: str, dialog) -> None:
-        """フォルダを開いてダイアログを閉じる"""
-        dialog.destroy()
-        folder = Path(file_path).parent
-        if sys.platform == "darwin":
-            subprocess.run(["open", str(folder)])
-        elif sys.platform == "win32":
-            subprocess.run(["explorer", str(folder)])
-        else:
-            subprocess.run(["xdg-open", str(folder)])
-
-    def _open_output_folder(self, dialog=None) -> None:
-        """出力フォルダを開く"""
-        if dialog:
-            dialog.destroy()
-
-        folder = Path(self.output_path).parent
-        if sys.platform == "darwin":
-            subprocess.run(["open", str(folder)])
-        elif sys.platform == "win32":
-            subprocess.run(["explorer", str(folder)])
-        else:
-            subprocess.run(["xdg-open", str(folder)])
-
-    def _on_error(self, error_message: str) -> None:
-        """エラー発生時の処理"""
-
-        def handle_error():
-            self.is_processing = False
-            self.process_button.configure(state="normal")
-            self.cancel_button.configure(state="disabled")
-            self.cancel_button.pack_forget()
-            self.circular_progress.set(0)
-            self.progress_label.configure(text="❌ エラーが発生しました")
-            self._show_error(f"処理中にエラーが発生しました:\n\n{error_message}")
-
-        self.root.after(0, handle_error)
-
-    def _on_cancelled(self) -> None:
-        """キャンセル時の処理"""
-
-        def handle_cancelled():
-            import os
-
-            self.is_processing = False
-            self.process_button.configure(state="normal")
-            self.cancel_button.configure(state="disabled")
-            self.cancel_button.pack_forget()
-            self.circular_progress.set(0)
-            self.progress_label.configure(text="キャンセルされました")
-
-            # 一時ファイルを削除
-            if self.temp_output_path and Path(self.temp_output_path).exists():
-                try:
-                    os.remove(self.temp_output_path)
-                except Exception:
-                    pass
-
-            self._show_info("処理がキャンセルされました。")
-
-        self.root.after(0, handle_cancelled)
-
-    def _show_gpu_warning(self) -> None:
-        """GPU未検出の警告を表示する"""
-        self._show_warning(
-            f"{self.device_info.warning}\n\n"
-            "処理を続行できますが、7分の動画の場合、数時間かかる可能性があります。"
+        dialog = CustomDialog(
+            self.root,
+            title="保存完了",
+            icon="💾",
+            message="ファイルを保存しました",
+            sub_message=filename,
         )
 
-    def _show_error(self, message: str) -> None:
-        """エラーダイアログを表示"""
-        ctk.CTkMessagebox = None  # CustomTkinterにはMessageboxがないのでTkinterを使用
-        from tkinter import messagebox
+        def open_folder():
+            dialog.destroy()
+            folder = Path(save_path).parent
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(folder)])
+            elif sys.platform == "win32":
+                subprocess.run(["explorer", str(folder)])
+            else:
+                subprocess.run(["xdg-open", str(folder)])
 
-        messagebox.showerror("エラー", message)
-
-    def _show_warning(self, message: str) -> None:
-        """警告ダイアログを表示"""
-        from tkinter import messagebox
-
-        messagebox.showwarning("警告", message)
-
-    def _show_info(self, message: str) -> None:
-        """情報ダイアログを表示"""
-        from tkinter import messagebox
-
-        messagebox.showinfo("情報", message)
+        dialog.add_button("フォルダを開く", open_folder, primary=True)
+        dialog.add_button("閉じる", dialog.destroy)
 
 
-class CTkDnDRoot(ctk.CTk):
-    """ドラッグ＆ドロップ対応のCTkルートウィンドウ"""
-
-    def __init__(self, *args, **kwargs):
-        # TkinterDnDが利用可能な場合はDnD対応のTkを使用
-        if HAS_DND:
-            # TkinterDnDのTkをベースにする
-            super(ctk.CTk, self).__init__(*args, **kwargs)
-            TkinterDnD._require(self)
-        else:
-            super().__init__(*args, **kwargs)
-
-
+# =============================================================================
+# メイン
+# =============================================================================
 def main():
     """アプリケーションのエントリーポイント"""
-    # カスタムルートウィンドウを使用
     if HAS_DND:
-        # TkinterDnDとCustomTkinterを組み合わせる
         root = TkinterDnD.Tk()
-        # CustomTkinterのスタイルを適用
         ctk.set_appearance_mode("light")
-        ctk.set_default_color_theme("blue")
+        ctk.set_default_color_theme("green")
     else:
         root = ctk.CTk()
 
