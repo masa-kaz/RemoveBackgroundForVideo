@@ -72,9 +72,14 @@ class E2ETestRunner:
         self.expected_output_path = self.test_video_path.parent / f"{self.test_video_path.stem}_nobg.mov"
 
     def log(self, message: str):
-        """ログ出力"""
+        """ログ出力（Windows環境でのエンコーディングエラーを回避）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] {message}")
+        try:
+            print(f"[{timestamp}] {message}")
+        except UnicodeEncodeError:
+            # Windowsコンソールで日本語が出力できない場合
+            safe_message = message.encode('ascii', errors='replace').decode('ascii')
+            print(f"[{timestamp}] {safe_message}")
 
     def take_screenshot(self, name: str) -> Path:
         """スクリーンショットを撮影"""
@@ -392,11 +397,11 @@ class E2ETestRunner:
 
                 # ウィンドウ下部の複数の位置をクリック（safe_clickで安全に）
                 button_positions = [
-                    (rect.width() // 2, rect.height() - 80, "中央下80"),
-                    (rect.width() // 2, rect.height() - 100, "中央下100"),
-                    (rect.width() // 2, rect.height() - 60, "中央下60"),
-                    (rect.width() // 2 + 50, rect.height() - 80, "右寄り80"),
-                    (rect.width() // 2 - 50, rect.height() - 80, "左寄り80"),
+                    (rect.width() // 2, rect.height() - 80, "center-bottom-80"),
+                    (rect.width() // 2, rect.height() - 100, "center-bottom-100"),
+                    (rect.width() // 2, rect.height() - 60, "center-bottom-60"),
+                    (rect.width() // 2 + 50, rect.height() - 80, "right-80"),
+                    (rect.width() // 2 - 50, rect.height() - 80, "left-80"),
                 ]
 
                 for rel_x, rel_y, desc in button_positions:
