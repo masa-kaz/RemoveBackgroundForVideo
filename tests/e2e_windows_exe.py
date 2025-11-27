@@ -242,49 +242,124 @@ class E2ETestRunner:
             self.record_result("Step2_SelectFile", False, str(e))
             return False
 
+    def dump_window_controls(self):
+        """ウィンドウ内のコントロールをダンプ（デバッグ用）"""
+        try:
+            self.log("=== Window Controls Dump ===")
+            controls = self.main_window.descendants()
+            for ctrl in controls:
+                try:
+                    ctrl_type = ctrl.element_info.control_type
+                    ctrl_text = ctrl.window_text()
+                    rect = ctrl.rectangle()
+                    self.log(f"  {ctrl_type}: '{ctrl_text}' at ({rect.left}, {rect.top}, {rect.right}, {rect.bottom})")
+                except Exception:
+                    pass
+            self.log("=== End Controls Dump ===")
+        except Exception as e:
+            self.log(f"Controls dump error: {e}")
+
+    def find_process_button(self):
+        """処理開始ボタンを複数の方法で検索"""
+        # 方法1: ボタンテキストで検索
+        button_texts = ["処理開始", "開始", "Start", "Process", "実行"]
+        for text in button_texts:
+            btn = self.find_button_by_text(text)
+            if btn:
+                self.log(f"Found button by text: '{text}'")
+                return btn
+
+        # 方法2: すべてのボタンを取得してログ出力
+        try:
+            buttons = self.main_window.descendants(control_type="Button")
+            self.log(f"Found {len(buttons)} buttons in window")
+            for i, btn in enumerate(buttons):
+                text = btn.window_text()
+                rect = btn.rectangle()
+                self.log(f"  Button {i}: '{text}' at ({rect.left}, {rect.top})")
+                # ボタンテキストに処理関連のキーワードが含まれていれば返す
+                if any(kw in text for kw in ["処理", "開始", "Start", "実行"]):
+                    return btn
+        except Exception as e:
+            self.log(f"Button search error: {e}")
+
+        return None
+
     def step3_process(self) -> bool:
         """Step 3: 処理開始"""
         self.log("=== Step 3: Start Processing ===")
 
         try:
+            # デバッグ: ウィンドウコントロールをダンプ
+            self.dump_window_controls()
+
             rect = self.main_window.rectangle()
+            self.log(f"Window rect: ({rect.left}, {rect.top}, {rect.right}, {rect.bottom})")
+            self.log(f"Window size: {rect.width()}x{rect.height()}")
 
-            # 「処理開始」ボタンをクリック（ウィンドウ下部中央）
-            process_btn_x = rect.left + (rect.width() // 2)
-            process_btn_y = rect.bottom - 80
+            # 方法1: ボタンを検索してクリック
+            process_btn = self.find_process_button()
+            if process_btn:
+                self.log("Clicking process button via pywinauto")
+                try:
+                    process_btn.click_input()
+                    time.sleep(2)
+                except Exception as e:
+                    self.log(f"pywinauto click failed: {e}, trying coordinate click")
+                    self.click_element(process_btn)
+                    time.sleep(2)
+            else:
+                # 方法2: 座標ベースでクリック（フォールバック）
+                # ウィンドウの下部にあるボタンエリアを複数回クリック
+                self.log("Button not found, trying coordinate-based clicks")
 
-            pyautogui.click(process_btn_x, process_btn_y)
-            time.sleep(2)
+                # ウィンドウ下部の複数の位置をクリック
+                button_positions = [
+                    (rect.left + (rect.width() // 2), rect.bottom - 80),  # 中央下
+                    (rect.left + (rect.width() // 2), rect.bottom - 100),  # 中央下（少し上）
+                    (rect.left + (rect.width() // 2), rect.bottom - 60),  # 中央下（少し下）
+                    (rect.left + (rect.width() // 2) + 50, rect.bottom - 80),  # 右寄り
+                    (rect.left + (rect.width() // 2) - 50, rect.bottom - 80),  # 左寄り
+                ]
+
+                for i, (x, y) in enumerate(button_positions):
+                    self.log(f"Trying click at ({x}, {y})")
+                    pyautogui.click(x, y)
+                    time.sleep(1)
 
             self.take_screenshot("04_processing_started")
 
-            # 処理完了まで待機（最大10分）
-            # プログレスバーが100%になるか、完了ダイアログが出るまで待機
-            max_wait = 600  # 10分
+            # 処理完了まで待機（最大5分に短縮）
+            max_wait = 300  # 5分
             start_time = time.time()
-            processing_detected = False
+            last_screenshot_time = 0
 
             while time.time() - start_time < max_wait:
-                # スクリーンショットを定期的に撮影
                 elapsed = int(time.time() - start_time)
-                if elapsed % 30 == 0 and elapsed > 0:
+
+                # 30秒ごとにスクリーンショット
+                if elapsed - last_screenshot_time >= 30:
                     self.take_screenshot(f"05_processing_{elapsed}s")
+                    last_screenshot_time = elapsed
 
                 # 完了ダイアログのチェック
-                dialogs = Desktop(backend="uia").windows()
-                for dlg in dialogs:
-                    title = dlg.window_text()
-                    if "完了" in title or "Complete" in title or "Success" in title:
-                        self.take_screenshot("06_completed_dialog")
-                        # OKボタンをクリック
-                        try:
-                            ok_btn = dlg.child_window(title="OK", control_type="Button")
-                            ok_btn.click()
-                        except Exception:
-                            send_keys("{ENTER}")
-                        time.sleep(1)
-                        self.record_result("Step3_Process", True, f"Processing completed in {elapsed}s")
-                        return True
+                try:
+                    dialogs = Desktop(backend="uia").windows()
+                    for dlg in dialogs:
+                        title = dlg.window_text()
+                        if "完了" in title or "Complete" in title or "Success" in title or "情報" in title:
+                            self.take_screenshot("06_completed_dialog")
+                            # OKボタンをクリック
+                            try:
+                                ok_btn = dlg.child_window(title="OK", control_type="Button")
+                                ok_btn.click()
+                            except Exception:
+                                send_keys("{ENTER}")
+                            time.sleep(1)
+                            self.record_result("Step3_Process", True, f"Processing completed in {elapsed}s")
+                            return True
+                except Exception as e:
+                    self.log(f"Dialog check error: {e}")
 
                 # 出力ファイルの存在チェック
                 if self.expected_output_path.exists():
@@ -294,7 +369,6 @@ class E2ETestRunner:
                         self.record_result("Step3_Process", True, f"Output file created: {file_size} bytes")
                         return True
 
-                processing_detected = True
                 time.sleep(2)
 
             self.take_screenshot("06_timeout")
