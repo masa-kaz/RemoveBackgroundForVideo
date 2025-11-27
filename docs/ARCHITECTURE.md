@@ -6,7 +6,7 @@
 RemoveBackgroundForVideo/
 ├── src/                    # ソースコード
 │   ├── __init__.py
-│   ├── main.py             # GUIエントリーポイント
+│   ├── main.py             # GUIエントリーポイント（CustomTkinter）
 │   ├── video_processor.py  # 動画処理ロジック
 │   ├── rvm_model.py        # RVMモデル管理
 │   └── utils.py            # ユーティリティ関数
@@ -20,15 +20,23 @@ RemoveBackgroundForVideo/
 │   └── fixtures/           # テスト用動画ファイル
 │       ├── TestVideo.mov
 │       └── TestVideo.mp4
+├── scripts/                # ユーティリティスクリプト
+│   ├── create_manual.py    # 操作マニュアル生成
+│   └── capture_screenshots.py  # スクリーンショット撮影
 ├── models/                 # AIモデル格納
 │   └── rvm_mobilenetv3.torchscript
 ├── ffmpeg/                 # ffmpeg実行ファイル
 │   └── ffmpeg.exe
 ├── docs/                   # ドキュメント
+│   ├── *.md                # 各種マークダウン
+│   ├── 操作マニュアル_動画背景除去ツール.docx  # Word形式マニュアル
+│   └── manual_images/      # マニュアル用スクリーンショット
+├── assets/                 # アプリアセット
+│   └── icon.png            # アプリロゴ
 ├── .claude/                # Claude Code設定
 │   └── workspace/
 │       ├── project_index/  # プロジェクトインデックス
-│       └── task.md         # タスク管理
+│       └── task.md         # UI仕様書
 ├── requirements.txt        # 本番依存パッケージ
 ├── requirements-dev.txt    # 開発依存パッケージ
 ├── pytest.ini              # pytest設定
@@ -190,8 +198,9 @@ RemoveBackgroundForVideo/
 | test_video_processor.py | video_processor.py | 20 |
 | test_build_scripts.py | ビルドスクリプト | 22 |
 | test_e2e.py | E2E統合テスト | 14 |
+| test_gui.py | GUI（UI仕様準拠） | 34 |
 
-合計: 111テスト
+合計: 145テスト
 
 テスト実行:
 ```bash

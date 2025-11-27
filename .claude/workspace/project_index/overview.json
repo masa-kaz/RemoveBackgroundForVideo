@@ -5,7 +5,7 @@
   "language": "Python 3.10+",
   "license": "社内利用 (RVMはGPL-3.0)",
   "tech_stack": {
-    "gui": "Tkinter",
+    "gui": "CustomTkinter + tkinterdnd2",
     "ai_model": "RobustVideoMatting (RVM)",
     "deep_learning": "PyTorch",
     "video_processing": ["OpenCV", "ffmpeg"],
@@ -30,7 +30,8 @@
     "tests/fixtures/": "テスト用動画ファイル",
     "models/": "AIモデル（rvm_mobilenetv3.torchscript）",
     "ffmpeg/": "ffmpeg実行ファイル",
-    "docs/": "ドキュメント",
+    "scripts/": "ユーティリティスクリプト",
+    "docs/": "ドキュメント（マニュアル含む）",
     ".claude/workspace/": "Claude Code設定"
   },
   "entry_point": "python -m src.main",

@@ -4,9 +4,11 @@
 UI仕様書: .claude/workspace/task.md
 """
 
+import atexit
 import math
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -96,6 +98,77 @@ SIZES = {
     "dialog_button_height": 50,
     "logo_size": 48,
 }
+
+
+# =============================================================================
+# 多重起動防止
+# =============================================================================
+class SingleInstanceLock:
+    """アプリの多重起動を防止するロッククラス"""
+
+    LOCK_FILE = Path(tempfile.gettempdir()) / "background_remover_video.lock"
+
+    def __init__(self):
+        self._lock_acquired = False
+
+    def _is_process_running(self, pid: int) -> bool:
+        """指定したPIDのプロセスが動作中か確認"""
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
+    def acquire(self) -> bool:
+        """ロックを取得。成功したらTrue、既に別インスタンスが動作中ならFalse"""
+        # ロックファイルが存在するか確認
+        if self.LOCK_FILE.exists():
+            try:
+                pid = int(self.LOCK_FILE.read_text().strip())
+                if self._is_process_running(pid):
+                    # 別のインスタンスが動作中
+                    return False
+                # プロセスは終了しているが、ロックファイルが残っている
+                self.LOCK_FILE.unlink()
+            except (ValueError, OSError):
+                # ロックファイルが壊れている場合は削除
+                try:
+                    self.LOCK_FILE.unlink()
+                except OSError:
+                    pass
+
+        # ロックファイルを作成
+        try:
+            self.LOCK_FILE.write_text(str(os.getpid()))
+            self._lock_acquired = True
+            return True
+        except OSError:
+            return False
+
+    def release(self):
+        """ロックを解放"""
+        if self._lock_acquired:
+            try:
+                self.LOCK_FILE.unlink()
+            except OSError:
+                pass
+            self._lock_acquired = False
+
+
+def _show_already_running_message():
+    """既に起動中であることをダイアログで表示"""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showinfo(
+            "動画背景除去ツール",
+            "アプリは既に起動しています。\n既存のウィンドウを使用してください。"
+        )
+        root.destroy()
+    except Exception:
+        print("アプリは既に起動しています。")
 
 
 # =============================================================================
@@ -1345,6 +1418,23 @@ class BackgroundRemoverApp:
 # =============================================================================
 def main():
     """アプリケーションのエントリーポイント"""
+    # 多重起動チェック
+    lock = SingleInstanceLock()
+    if not lock.acquire():
+        _show_already_running_message()
+        sys.exit(0)
+
+    # 終了時にロックを解放
+    atexit.register(lock.release)
+
+    # シグナルハンドラを設定（Ctrl+Cなどで終了時もロック解放）
+    def signal_handler(signum, frame):
+        lock.release()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     if HAS_DND:
         root = TkinterDnD.Tk()
         ctk.set_appearance_mode("light")
