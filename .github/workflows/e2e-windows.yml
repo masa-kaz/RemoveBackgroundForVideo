@@ -135,6 +135,41 @@ jobs:
           }
 
       # =============================================================================
+      # 日本語パステスト（EXEを日本語ディレクトリにコピーしてテスト）
+      # =============================================================================
+      - name: Test Japanese path support
+        run: |
+          # 日本語ディレクトリを作成
+          $japanesePath = "C:\テスト用\背景除去ツール"
+          New-Item -ItemType Directory -Force -Path $japanesePath
+
+          # EXEフォルダをコピー
+          Copy-Item -Recurse "dist\BackgroundRemover_CPU\*" $japanesePath
+
+          # EXEが存在することを確認
+          $exePath = "$japanesePath\BackgroundRemover_CPU.exe"
+          if (Test-Path $exePath) {
+            Write-Host "Japanese path test: EXE copied successfully to $japanesePath"
+          } else {
+            Write-Error "Japanese path test: EXE not found at $exePath"
+            exit 1
+          }
+
+          # モデルファイルが読み込めることを確認（起動テスト）
+          # --help などのオプションがない場合はタイムアウトで終了させる
+          Write-Host "Testing EXE launch from Japanese path..."
+          $process = Start-Process -FilePath $exePath -PassThru
+          Start-Sleep -Seconds 10
+
+          if (!$process.HasExited) {
+            Write-Host "Japanese path test: EXE launched successfully from Japanese path!"
+            $process.Kill()
+          } else {
+            Write-Error "Japanese path test: EXE exited unexpectedly with code $($process.ExitCode)"
+            exit 1
+          }
+
+      # =============================================================================
       # E2Eテスト実行
       # =============================================================================
       - name: Verify test video exists

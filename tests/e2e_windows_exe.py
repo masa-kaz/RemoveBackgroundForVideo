@@ -72,9 +72,14 @@ class E2ETestRunner:
         self.expected_output_path = self.test_video_path.parent / f"{self.test_video_path.stem}_nobg.mov"
 
     def log(self, message: str):
-        """ログ出力"""
+        """ログ出力（Windows環境でのエンコーディングエラーを回避）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] {message}")
+        try:
+            print(f"[{timestamp}] {message}")
+        except UnicodeEncodeError:
+            # Windowsコンソールで日本語が出力できない場合
+            safe_message = message.encode('ascii', errors='replace').decode('ascii')
+            print(f"[{timestamp}] {safe_message}")
 
     def take_screenshot(self, name: str) -> Path:
         """スクリーンショットを撮影"""
@@ -245,6 +250,39 @@ class E2ETestRunner:
             self.record_result("Step2_SelectFile", False, str(e))
             return False
 
+    def ensure_window_focus(self):
+        """ウィンドウにフォーカスを確実に当てる"""
+        try:
+            # ESCキーでメニューを閉じる（複数回）
+            for _ in range(3):
+                send_keys("{ESC}")
+                time.sleep(0.2)
+
+            # ウィンドウをフォアグラウンドに
+            self.main_window.set_focus()
+            time.sleep(0.5)
+
+            # 注: タイトルバークリックは削除（Windowsスタートメニュー誤クリックの原因となるため）
+
+        except Exception as e:
+            self.log(f"ensure_window_focus error: {e}")
+
+    def safe_click(self, x: int, y: int, description: str = ""):
+        """ウィンドウ内であることを確認してクリック"""
+        rect = self.main_window.rectangle()
+
+        # 座標がウィンドウ内かチェック
+        if x < rect.left or x > rect.right or y < rect.top or y > rect.bottom:
+            self.log(f"WARNING: Click ({x}, {y}) is outside window bounds!")
+            self.log(f"  Window: ({rect.left}, {rect.top}) - ({rect.right}, {rect.bottom})")
+            # 座標をウィンドウ内にクランプ
+            x = max(rect.left + 10, min(x, rect.right - 10))
+            y = max(rect.top + 30, min(y, rect.bottom - 10))
+            self.log(f"  Clamped to: ({x}, {y})")
+
+        self.log(f"Clicking at ({x}, {y}) - {description}")
+        pyautogui.click(x, y)
+
     def close_gpu_warning_dialog(self):
         """GPU警告ダイアログを閉じる"""
         self.log("=== Checking for GPU warning dialog ===")
@@ -252,23 +290,20 @@ class E2ETestRunner:
             # ダイアログが表示されるまで少し待機
             time.sleep(1)
 
-            # ウィンドウをフォアグラウンドに持ってくる
-            try:
-                self.main_window.set_focus()
-                time.sleep(0.3)
-            except Exception:
-                pass
+            # ウィンドウにフォーカスを当てる
+            self.ensure_window_focus()
 
             # 「了解」ボタンを探す（メインウィンドウ内のダイアログ）
             # CustomTkinterのダイアログはメインウィンドウ内に表示される
             rect = self.main_window.rectangle()
 
-            # ダイアログの「了解」ボタンの位置を推定（ウィンドウ中央付近）
+            # ダイアログの「了解」ボタンの位置を推定
+            # ウィンドウの中央より少し下（ただしウィンドウ内に収まるように）
             dialog_btn_x = rect.left + (rect.width() // 2)
-            dialog_btn_y = rect.top + (rect.height() // 2) + 100  # ダイアログの下部にボタンがある
+            # ウィンドウの60%の位置（中央より少し下、かつ必ずウィンドウ内）
+            dialog_btn_y = rect.top + int(rect.height() * 0.6)
 
-            self.log(f"Clicking 'OK' button at ({dialog_btn_x}, {dialog_btn_y})")
-            pyautogui.click(dialog_btn_x, dialog_btn_y)
+            self.safe_click(dialog_btn_x, dialog_btn_y, "GPU dialog OK button")
             time.sleep(1)
 
             self.take_screenshot("03b_gpu_dialog_closed")
@@ -325,22 +360,8 @@ class E2ETestRunner:
         self.log("=== Step 3: Start Processing ===")
 
         try:
-            # ESCキーを押してスタートメニューなどを閉じる
-            self.log("Pressing ESC to close any open menus")
-            send_keys("{ESC}")
-            time.sleep(0.5)
-
-            # ウィンドウをフォアグラウンドに持ってくる
-            self.log("Bringing window to foreground")
-            try:
-                self.main_window.set_focus()
-                time.sleep(0.5)
-            except Exception as e:
-                self.log(f"set_focus failed: {e}")
-                # フォールバック: ウィンドウをクリックしてフォーカス
-                rect = self.main_window.rectangle()
-                pyautogui.click(rect.left + 100, rect.top + 50)
-                time.sleep(0.5)
+            # ウィンドウにフォーカスを当てる（ESC + set_focus + タイトルバークリック）
+            self.ensure_window_focus()
 
             # デバッグ: ウィンドウコントロールをダンプ
             self.dump_window_controls()
@@ -353,6 +374,8 @@ class E2ETestRunner:
             process_btn = self.find_process_button()
             if process_btn:
                 self.log("Clicking process button via pywinauto")
+                # フォーカスを確実に
+                self.ensure_window_focus()
                 try:
                     process_btn.click_input()
                     time.sleep(2)
@@ -365,18 +388,23 @@ class E2ETestRunner:
                 # ウィンドウの下部にあるボタンエリアを複数回クリック
                 self.log("Button not found, trying coordinate-based clicks")
 
-                # ウィンドウ下部の複数の位置をクリック
+                # フォーカスを確実に
+                self.ensure_window_focus()
+
+                # ウィンドウ下部の複数の位置をクリック（safe_clickで安全に）
                 button_positions = [
-                    (rect.left + (rect.width() // 2), rect.bottom - 80),  # 中央下
-                    (rect.left + (rect.width() // 2), rect.bottom - 100),  # 中央下（少し上）
-                    (rect.left + (rect.width() // 2), rect.bottom - 60),  # 中央下（少し下）
-                    (rect.left + (rect.width() // 2) + 50, rect.bottom - 80),  # 右寄り
-                    (rect.left + (rect.width() // 2) - 50, rect.bottom - 80),  # 左寄り
+                    (rect.width() // 2, rect.height() - 80, "center-bottom-80"),
+                    (rect.width() // 2, rect.height() - 100, "center-bottom-100"),
+                    (rect.width() // 2, rect.height() - 60, "center-bottom-60"),
+                    (rect.width() // 2 + 50, rect.height() - 80, "right-80"),
+                    (rect.width() // 2 - 50, rect.height() - 80, "left-80"),
                 ]
 
-                for i, (x, y) in enumerate(button_positions):
-                    self.log(f"Trying click at ({x}, {y})")
-                    pyautogui.click(x, y)
+                for rel_x, rel_y, desc in button_positions:
+                    # 相対座標を絶対座標に変換
+                    x = rect.left + rel_x
+                    y = rect.top + rel_y
+                    self.safe_click(x, y, desc)
                     time.sleep(1)
 
             self.take_screenshot("04_processing_started")

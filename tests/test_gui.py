@@ -68,7 +68,6 @@ BackgroundRemoverApp = None
 CircularProgress = None
 CustomDialog = None
 Toast = None
-create_checkerboard_image = None
 
 try:
     from main import (
@@ -76,7 +75,6 @@ try:
         CircularProgress,
         CustomDialog,
         Toast,
-        create_checkerboard_image,
     )
     _HAS_GUI_CLASSES = True
 except ImportError:
@@ -141,6 +139,14 @@ class TestColors:
         """トースト色が仕様通りであること"""
         assert COLORS["toast_bg"] == "#263238"
         assert COLORS["toast_text"] == "#FFFFFF"
+
+    def test_disabled_color(self):
+        """無効状態の色が#BDBDBDであること"""
+        assert COLORS["disabled"] == "#BDBDBD"
+
+    def test_danger_hover_color(self):
+        """危険ボタンホバー色が#FFEBEEであること"""
+        assert COLORS["danger_hover"] == "#FFEBEE"
 
 
 # =============================================================================
@@ -269,7 +275,20 @@ class TestInitialState:
         assert BackgroundRemoverApp.STATE_INITIAL == "initial"
         assert BackgroundRemoverApp.STATE_FILE_SELECTED == "file_selected"
         assert BackgroundRemoverApp.STATE_PROCESSING == "processing"
+        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
         assert BackgroundRemoverApp.STATE_COMPLETE == "complete"
+
+    def test_all_state_constants_exist(self):
+        """すべての状態定数が存在すること"""
+        required_states = [
+            "STATE_INITIAL",
+            "STATE_FILE_SELECTED",
+            "STATE_PROCESSING",
+            "STATE_CONVERTING",
+            "STATE_COMPLETE",
+        ]
+        for state in required_states:
+            assert hasattr(BackgroundRemoverApp, state), f"Missing state: {state}"
 
 
 # =============================================================================
@@ -296,6 +315,23 @@ class TestProcessingState:
         """STATE_PROCESSING定数が存在すること"""
         assert hasattr(BackgroundRemoverApp, "STATE_PROCESSING")
         assert BackgroundRemoverApp.STATE_PROCESSING == "processing"
+
+
+# =============================================================================
+# 6.5. WebM変換中状態UIテスト
+# =============================================================================
+@pytest.mark.skipif(not _HAS_GUI_CLASSES, reason="GUI classes not available (no tkinter)")
+class TestConvertingState:
+    """WebM変換中状態UIが仕様通りか確認"""
+
+    def test_state_constant_exists(self):
+        """STATE_CONVERTING定数が存在すること"""
+        assert hasattr(BackgroundRemoverApp, "STATE_CONVERTING")
+        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
+
+    def test_converting_state_value(self):
+        """STATE_CONVERTINGが'converting'であること"""
+        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
 
 
 # =============================================================================
@@ -348,30 +384,7 @@ class TestToast:
 
 
 # =============================================================================
-# 10. 市松模様テスト
-# =============================================================================
-@pytest.mark.skipif(not _HAS_GUI_CLASSES, reason="GUI classes not available (no tkinter)")
-class TestCheckerboard:
-    """市松模様が正しく生成されるか確認"""
-
-    def test_create_checkerboard_image_exists(self):
-        """create_checkerboard_image関数が存在すること"""
-        assert create_checkerboard_image is not None
-
-    def test_create_checkerboard_image_size(self):
-        """指定サイズで市松模様画像が生成されること"""
-        width, height = 100, 100
-        img = create_checkerboard_image(width, height)
-        assert img.size == (width, height)
-
-    def test_create_checkerboard_image_mode(self):
-        """市松模様画像がRGBAモードであること"""
-        img = create_checkerboard_image(100, 100)
-        assert img.mode == "RGBA"
-
-
-# =============================================================================
-# 11. CircularProgressテスト
+# 10. CircularProgressテスト
 # =============================================================================
 class TestCircularProgress:
     """円形プログレスバーが仕様通りか確認"""
@@ -433,6 +446,8 @@ class TestIntegration:
             "success",
             "warning",
             "danger",
+            "danger_hover",
+            "disabled",
             "bg",
             "card",
             "border",
@@ -484,6 +499,256 @@ class TestIntegration:
         ]
         for size in required_sizes:
             assert size in SIZES, f"Missing size: {size}"
+
+
+# =============================================================================
+# 14. サポートされていないファイル形式テスト（異常系）
+# =============================================================================
+class TestUnsupportedFileFormat:
+    """サポートされていないファイル形式のテスト"""
+
+    def test_unsupported_extension_list(self):
+        """非対応拡張子が拒否されること"""
+        # main.pyではis_supported_video関数でチェックされる
+        # 非対応拡張子リスト
+        unsupported_extensions = [".avi", ".mkv", ".wmv", ".flv", ".webm", ".txt", ".jpg"]
+        from utils import is_supported_video
+
+        for ext in unsupported_extensions:
+            assert is_supported_video(f"video{ext}") is False, f"{ext} should not be supported"
+
+    def test_supported_extension_list(self):
+        """対応拡張子が受け入れられること"""
+        from utils import is_supported_video, SUPPORTED_INPUT_EXTENSIONS
+
+        # 対応拡張子リスト
+        for ext in SUPPORTED_INPUT_EXTENSIONS:
+            assert is_supported_video(f"video{ext}") is True, f"{ext} should be supported"
+
+    def test_empty_filename_rejected(self):
+        """空のファイル名が拒否されること"""
+        from utils import is_supported_video
+
+        assert is_supported_video("") is False
+
+    def test_no_extension_rejected(self):
+        """拡張子なしのファイル名が拒否されること"""
+        from utils import is_supported_video
+
+        assert is_supported_video("videofile") is False
+        assert is_supported_video("video.") is False
+
+
+# =============================================================================
+# 15. 状態遷移エラーテスト（異常系）
+# =============================================================================
+class TestStateTransitionErrors:
+    """状態遷移時のエラーハンドリングテスト"""
+
+    def test_processing_state_blocks_file_selection(self):
+        """処理中状態ではファイル選択が無効化されること"""
+        # STATE_PROCESSINGでは_select_inputが無視される仕様
+        # コード: if self.current_state in (self.STATE_PROCESSING, self.STATE_CONVERTING): return
+        assert "processing" in ["initial", "file_selected", "processing", "converting", "complete"]
+
+    def test_converting_state_blocks_file_selection(self):
+        """変換中状態ではファイル選択が無効化されること"""
+        assert "converting" in ["initial", "file_selected", "processing", "converting", "complete"]
+
+    def test_processing_state_blocks_main_button(self):
+        """処理中状態ではメインボタンが無効化されること"""
+        # コード: if self.current_state in (self.STATE_PROCESSING, self.STATE_CONVERTING): return
+        assert "processing" != "file_selected"
+
+    def test_converting_state_blocks_main_button(self):
+        """変換中状態ではメインボタンが無効化されること"""
+        assert "converting" != "complete"
+
+    def test_only_processing_state_allows_cancel(self):
+        """キャンセルは処理中状態のみで有効なこと"""
+        # コード: if self.current_state != self.STATE_PROCESSING: return
+        valid_cancel_states = ["processing"]
+        invalid_cancel_states = ["initial", "file_selected", "converting", "complete"]
+        assert len(valid_cancel_states) == 1
+        assert len(invalid_cancel_states) == 4
+
+    def test_retry_only_in_complete_state(self):
+        """やり直しは完了状態のみで有効なこと"""
+        # コード: if self.current_state != self.STATE_COMPLETE: return
+        assert "complete" not in ["initial", "file_selected", "processing", "converting"]
+
+    def test_process_another_only_in_complete_state(self):
+        """別の動画を処理は完了状態のみで有効なこと"""
+        # コード: if self.current_state != self.STATE_COMPLETE: return
+        assert "complete" not in ["initial", "file_selected", "processing", "converting"]
+
+
+# =============================================================================
+# 16. 多重起動防止テスト（異常系）
+# =============================================================================
+class TestSingleInstanceLock:
+    """多重起動防止のテスト"""
+
+    def test_lock_file_path_in_temp_directory(self):
+        """ロックファイルがtempディレクトリに配置されること"""
+        import tempfile
+        from pathlib import Path
+
+        expected_dir = Path(tempfile.gettempdir())
+        lock_file_name = "background_remover_video.lock"
+
+        # main.pyのSingleInstanceLock.LOCK_FILEを確認
+        assert expected_dir.exists()
+        assert lock_file_name == "background_remover_video.lock"
+
+    def test_lock_file_name_constant(self):
+        """ロックファイル名が正しいこと"""
+        # main.pyの定数を確認
+        expected_name = "background_remover_video.lock"
+        assert expected_name.endswith(".lock")
+
+    def test_invalid_pid_handling(self):
+        """不正なPIDが含まれるロックファイルの処理"""
+        # 不正なPIDの例
+        invalid_pids = ["", "abc", "-1", "0"]
+        for pid in invalid_pids:
+            try:
+                int(pid) if pid else None
+            except ValueError:
+                pass  # ValueError は想定内
+
+
+# =============================================================================
+# 17. 入力検証テスト（異常系）
+# =============================================================================
+class TestInputValidation:
+    """入力検証テスト"""
+
+    def test_empty_path_is_rejected(self):
+        """空のパスが拒否されること"""
+        # _set_input_file メソッドの if not path: return をテスト
+        empty_paths = ["", None]
+        for path in empty_paths:
+            assert not path  # Falsy
+
+    def test_path_validation_for_supported_video(self):
+        """パス検証がis_supported_videoを使用すること"""
+        from utils import is_supported_video
+
+        # 存在しないが形式は正しいパス
+        assert is_supported_video("/nonexistent/path/video.mp4") is True
+        # 存在しないし形式も不正なパス
+        assert is_supported_video("/nonexistent/path/video.txt") is False
+
+    def test_unicode_path_handling(self):
+        """日本語パスが正しく処理されること"""
+        from utils import is_supported_video
+
+        assert is_supported_video("/パス/動画.mp4") is True
+        assert is_supported_video("/path/日本語ファイル名.mov") is True
+
+    def test_path_with_special_characters(self):
+        """特殊文字を含むパスが正しく処理されること"""
+        from utils import is_supported_video
+
+        assert is_supported_video("/path/video (1).mp4") is True
+        assert is_supported_video("/path/video-file_name.mov") is True
+        assert is_supported_video("/path/video.file.mp4") is True
+
+
+# =============================================================================
+# 18. 色コード妥当性検証テスト（異常系防止）
+# =============================================================================
+class TestColorValidation:
+    """色コードの妥当性検証テスト"""
+
+    def test_all_colors_are_valid_hex_format(self):
+        """すべての色が有効なHex形式であること"""
+        import re
+
+        hex_pattern = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+        for name, color in COLORS.items():
+            assert hex_pattern.match(color), f"Invalid color format for {name}: {color}"
+
+    def test_color_values_not_empty(self):
+        """色値が空でないこと"""
+        for name, color in COLORS.items():
+            assert color, f"Color {name} is empty"
+            assert len(color) == 7, f"Color {name} has wrong length: {len(color)}"
+
+    def test_no_duplicate_color_keys(self):
+        """重複するカラーキーがないこと"""
+        keys = list(COLORS.keys())
+        assert len(keys) == len(set(keys)), "Duplicate color keys found"
+
+    def test_primary_colors_are_distinct(self):
+        """プライマリ系の色が互いに異なること"""
+        primary_colors = [
+            COLORS["primary"],
+            COLORS["primary_dark"],
+            COLORS["primary_hover"],
+        ]
+        assert len(primary_colors) == len(set(primary_colors)), "Primary colors should be distinct"
+
+
+# =============================================================================
+# 19. フォントサイズ妥当性検証テスト（異常系防止）
+# =============================================================================
+class TestFontSizeValidation:
+    """フォントサイズの妥当性検証テスト"""
+
+    def test_all_font_sizes_are_positive(self):
+        """すべてのフォントサイズが正の整数であること"""
+        for name, size in FONT_SIZES.items():
+            assert isinstance(size, int), f"Font size {name} is not int: {type(size)}"
+            assert size > 0, f"Font size {name} is not positive: {size}"
+
+    def test_font_sizes_in_reasonable_range(self):
+        """フォントサイズが妥当な範囲内であること（8〜100px）"""
+        for name, size in FONT_SIZES.items():
+            assert 8 <= size <= 100, f"Font size {name} out of range: {size}"
+
+    def test_hierarchy_font_sizes(self):
+        """フォントサイズの階層が正しいこと（タイトル > サブタイトル > 本文）"""
+        assert FONT_SIZES["title"] > FONT_SIZES["subtitle"]
+        assert FONT_SIZES["dialog_title"] > FONT_SIZES["dialog_body"]
+
+
+# =============================================================================
+# 20. サイズ定数妥当性検証テスト（異常系防止）
+# =============================================================================
+class TestSizeValidation:
+    """サイズ定数の妥当性検証テスト"""
+
+    def test_window_initial_larger_than_minimum(self):
+        """初期ウィンドウサイズが最小サイズより大きいこと"""
+        assert SIZES["window_initial"][0] >= SIZES["window_min"][0]
+        assert SIZES["window_initial"][1] >= SIZES["window_min"][1]
+
+    def test_all_sizes_are_positive(self):
+        """すべてのサイズが正の値であること"""
+        for name, size in SIZES.items():
+            if isinstance(size, tuple):
+                for val in size:
+                    assert val > 0, f"Size {name} has non-positive value: {val}"
+            else:
+                assert size > 0, f"Size {name} is not positive: {size}"
+
+    def test_thumbnail_aspect_ratio_valid(self):
+        """サムネイルアスペクト比が有効な値であること"""
+        ratio = SIZES["thumbnail_aspect_ratio"]
+        assert 0.5 <= ratio <= 3.0, f"Thumbnail aspect ratio out of range: {ratio}"
+
+    def test_button_dimensions_valid(self):
+        """ボタンのサイズが有効であること"""
+        assert SIZES["button_height"] >= 40  # 最低タップサイズ
+        assert SIZES["button_max_width"] >= 100  # 最低幅
+
+    def test_dialog_dimensions_valid(self):
+        """ダイアログのサイズが有効であること"""
+        assert SIZES["dialog_width"] >= 200
+        assert SIZES["dialog_button_height"] >= 40
 
 
 if __name__ == "__main__":

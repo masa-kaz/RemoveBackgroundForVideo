@@ -308,6 +308,173 @@ class TestVideoProcessorCreateRgbaImage:
         assert isinstance(result, Image.Image)
 
 
+class TestVideoProcessorPauseResume:
+    """VideoProcessorの一時停止/再開機能のテスト"""
+
+    def test_pause_sets_flag(self):
+        """pauseメソッドが一時停止フラグを設定すること"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        assert processor.is_paused() is False
+
+        processor.pause()
+
+        assert processor.is_paused() is True
+
+    def test_resume_clears_flag(self):
+        """resumeメソッドが一時停止フラグをクリアすること"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        processor.pause()
+        assert processor.is_paused() is True
+
+        processor.resume()
+
+        assert processor.is_paused() is False
+
+    def test_cancel_clears_pause(self):
+        """cancelがpause状態を解除すること"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        processor.pause()
+        assert processor.is_paused() is True
+
+        processor.cancel()
+
+        # キャンセル時はpause状態が解除される
+        assert processor.is_paused() is False
+        assert processor.is_cancelled() is True
+
+
+class TestVideoProcessorCreateProresVideo:
+    """VideoProcessor._create_prores_video メソッドのテスト"""
+
+    @patch("subprocess.run")
+    def test_create_prores_video_without_audio(self, mock_run):
+        """音声なしでProRes動画を作成できること"""
+        mock_run.return_value = Mock(returncode=0, stderr="")
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            output_path = str(frames_dir / "output.mov")
+
+            processor._create_prores_video(
+                frames_dir=frames_dir,
+                input_path="/dummy/input.mp4",
+                output_path=output_path,
+                fps=30.0,
+                has_audio=False,
+            )
+
+            # ffmpegが呼び出されたことを確認
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+
+            # 音声関連のオプションが含まれていないこと
+            assert "-map" not in call_args
+            assert "-c:a" not in call_args
+
+    @patch("subprocess.run")
+    def test_create_prores_video_with_audio(self, mock_run):
+        """音声ありでProRes動画を作成できること"""
+        mock_run.return_value = Mock(returncode=0, stderr="")
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            output_path = str(frames_dir / "output.mov")
+
+            processor._create_prores_video(
+                frames_dir=frames_dir,
+                input_path="/dummy/input.mp4",
+                output_path=output_path,
+                fps=30.0,
+                has_audio=True,
+            )
+
+            # ffmpegが呼び出されたことを確認
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+
+            # 音声関連のオプションが含まれていること
+            assert "-c:a" in call_args
+            assert "aac" in call_args
+
+    @patch("subprocess.run")
+    def test_create_prores_video_ffmpeg_error(self, mock_run):
+        """ffmpegエラー時にRuntimeErrorを発生すること"""
+        mock_run.return_value = Mock(
+            returncode=1,
+            stderr="Error: Invalid input"
+        )
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            output_path = str(frames_dir / "output.mov")
+
+            with pytest.raises(RuntimeError) as exc_info:
+                processor._create_prores_video(
+                    frames_dir=frames_dir,
+                    input_path="/dummy/input.mp4",
+                    output_path=output_path,
+                    fps=30.0,
+                    has_audio=False,
+                )
+
+            assert "ffmpegエラー" in str(exc_info.value)
+            assert "Invalid input" in str(exc_info.value)
+
+
+class TestGetVideoInfoEdgeCases:
+    """get_video_info関数のエッジケーステスト"""
+
+    def test_fps_zero_handling(self):
+        """fps=0の場合のduration計算"""
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            # fps=0の動画をシミュレート（モックで）
+            with patch("cv2.VideoCapture") as mock_cap_class:
+                mock_cap = Mock()
+                mock_cap.isOpened.return_value = True
+                mock_cap.get.side_effect = lambda prop: {
+                    cv2.CAP_PROP_FRAME_WIDTH: 640,
+                    cv2.CAP_PROP_FRAME_HEIGHT: 480,
+                    cv2.CAP_PROP_FPS: 0,  # fps = 0
+                    cv2.CAP_PROP_FRAME_COUNT: 100,
+                }.get(prop, 0)
+                mock_cap_class.return_value = mock_cap
+
+                with patch("src.video_processor._check_audio_stream", return_value=False):
+                    info = get_video_info(temp_path)
+
+                # fps=0の場合、durationも0になる
+                assert info.duration == 0
+        finally:
+            os.unlink(temp_path)
+
+
 class TestVideoProcessorWithMock:
     """モックを使用したVideoProcessorの統合テスト"""
 
