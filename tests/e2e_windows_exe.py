@@ -253,20 +253,16 @@ class E2ETestRunner:
     def ensure_window_focus(self):
         """ウィンドウにフォーカスを確実に当てる"""
         try:
-            # ESCキーでメニューを閉じる
-            send_keys("{ESC}")
-            time.sleep(0.3)
+            # ESCキーでメニューを閉じる（複数回）
+            for _ in range(3):
+                send_keys("{ESC}")
+                time.sleep(0.2)
 
             # ウィンドウをフォアグラウンドに
             self.main_window.set_focus()
-            time.sleep(0.3)
+            time.sleep(0.5)
 
-            # ウィンドウのタイトルバーをクリックしてアクティブ化
-            rect = self.main_window.rectangle()
-            title_x = rect.left + (rect.width() // 2)
-            title_y = rect.top + 15  # タイトルバー
-            pyautogui.click(title_x, title_y)
-            time.sleep(0.3)
+            # 注: タイトルバークリックは削除（Windowsスタートメニュー誤クリックの原因となるため）
 
         except Exception as e:
             self.log(f"ensure_window_focus error: {e}")
