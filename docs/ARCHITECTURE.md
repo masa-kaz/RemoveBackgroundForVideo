@@ -8,6 +8,7 @@ RemoveBackgroundForVideo/
 │   ├── __init__.py
 │   ├── main.py             # GUIエントリーポイント（CustomTkinter）
 │   ├── video_processor.py  # 動画処理ロジック
+│   ├── video_compressor.py # WebM変換・圧縮モジュール
 │   ├── rvm_model.py        # RVMモデル管理
 │   └── utils.py            # ユーティリティ関数
 ├── tests/                  # テストコード
@@ -15,6 +16,7 @@ RemoveBackgroundForVideo/
 │   ├── test_utils.py
 │   ├── test_rvm_model.py
 │   ├── test_video_processor.py
+│   ├── test_video_compressor.py
 │   ├── test_build_scripts.py
 │   ├── test_e2e.py
 │   └── fixtures/           # テスト用動画ファイル
@@ -22,7 +24,8 @@ RemoveBackgroundForVideo/
 │       └── TestVideo.mp4
 ├── scripts/                # ユーティリティスクリプト
 │   ├── create_manual.py    # 操作マニュアル生成
-│   └── capture_screenshots.py  # スクリーンショット撮影
+│   ├── capture_screenshots.py  # スクリーンショット撮影
+│   └── compress_video.py   # 動画圧縮CLIツール
 ├── models/                 # AIモデル格納
 │   └── rvm_mobilenetv3.torchscript
 ├── ffmpeg/                 # ffmpeg実行ファイル
@@ -57,12 +60,19 @@ RemoveBackgroundForVideo/
 主要クラス:
 - `BackgroundRemoverApp`: メインアプリケーションクラス
 
+状態管理:
+- `STATE_IDLE`: 待機中
+- `STATE_PROCESSING`: 背景除去処理中
+- `STATE_CONVERTING`: WebM変換中
+- `STATE_COMPLETE`: 完了
+
 機能:
-- Tkinterベースのシンプルなウィンドウ
+- CustomTkinterベースのモダンなウィンドウ
 - ファイル選択ダイアログ
 - 進捗バー表示
 - マルチスレッド処理（UIフリーズ防止）
 - キャンセルボタンで処理中断可能
+- 自動WebM変換（背景除去後）
 
 ### src/video_processor.py
 **役割**: 動画の読み込み・処理・出力
@@ -80,6 +90,23 @@ RemoveBackgroundForVideo/
 2. フレームごとにRVMで背景除去（キャンセル確認付き）
 3. RGBA画像としてPNG連番出力
 4. ffmpegでProRes 4444に変換（音声があれば自動的に含める）
+5. video_compressorでWebM (VP9)に変換
+
+### src/video_compressor.py
+**役割**: WebM形式への変換と圧縮
+
+主要クラス/関数:
+- `CompressionResult`: 圧縮結果を格納するデータクラス
+- `compress_video()`: 動画をWebM (VP9)形式に変換
+- `compress_if_needed()`: サイズ制限を超える場合のみ圧縮
+- `verify_video_integrity()`: 動画ファイルの整合性チェック
+- `calculate_target_bitrate()`: 目標ビットレート計算
+
+特徴:
+- VP9コーデックで透過（アルファチャンネル）を保持
+- 高速エンコード設定（realtime、cpu-used=8）
+- 自動バックアップと復元機能
+- Canva対応のWebM出力
 
 ### src/rvm_model.py
 **役割**: RobustVideoMattingモデルの管理
@@ -154,7 +181,15 @@ RemoveBackgroundForVideo/
 │   └─────────────┘ │
 └─────────┬─────────┘
           ▼
-[出力動画 (MOV with alpha)]
+┌───────────────────┐
+│ video_compressor  │
+│   ┌─────────────┐ │
+│   │ VP9 WebM    │ │
+│   │ 変換        │ │
+│   └─────────────┘ │
+└─────────┬─────────┘
+          ▼
+[出力動画 (WebM with alpha)]
 ```
 
 ---
@@ -196,11 +231,12 @@ RemoveBackgroundForVideo/
 | test_utils.py | utils.py | 37 |
 | test_rvm_model.py | rvm_model.py | 18 |
 | test_video_processor.py | video_processor.py | 20 |
+| test_video_compressor.py | video_compressor.py | 20 |
 | test_build_scripts.py | ビルドスクリプト | 22 |
 | test_e2e.py | E2E統合テスト | 14 |
 | test_gui.py | GUI（UI仕様準拠） | 34 |
 
-合計: 145テスト
+合計: 165テスト
 
 テスト実行:
 ```bash
