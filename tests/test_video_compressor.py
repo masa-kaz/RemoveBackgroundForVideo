@@ -26,6 +26,7 @@ from video_compressor import (
     verify_video_integrity,
     get_file_size_mb,
     calculate_target_bitrate,
+    CompressionResult,
     DEFAULT_MAX_SIZE_MB,
 )
 from video_processor import find_ffmpeg
@@ -298,6 +299,161 @@ class TestEdgeCases:
         # 例外ではなくエラー結果を返す
         assert result.success is False
         assert "見つかりません" in result.error_message
+
+
+class TestCompressVideoErrorHandling:
+    """compress_video関数のエラーハンドリングテスト"""
+
+    def test_large_target_size_skips_compression(self):
+        """十分大きいターゲットサイズの場合は圧縮がスキップされる"""
+        if not TEST_VIDEO_MOV.exists():
+            pytest.skip("テスト動画が見つかりません")
+
+        original_size = get_file_size_mb(str(TEST_VIDEO_MOV))
+
+        result = compress_video(
+            str(TEST_VIDEO_MOV),
+            max_size_mb=original_size + 100,  # 十分大きいサイズ
+        )
+
+        # スキップされる
+        assert result.success is True
+        assert result.compression_ratio == 1.0
+
+    def test_negative_size_handled(self):
+        """負のサイズ指定でも適切に処理される"""
+        if not TEST_VIDEO_MOV.exists():
+            pytest.skip("テスト動画が見つかりません")
+
+        # 負のサイズでも圧縮は実行される（ファイルが0より大きいため）
+        result = compress_video(
+            str(TEST_VIDEO_MOV),
+            max_size_mb=-100,
+        )
+
+        # エラーなく処理される（圧縮される）
+        # 結果は実装依存
+
+
+class TestCalculateTargetBitrateEdgeCases:
+    """calculate_target_bitrate関数のエッジケーステスト"""
+
+    def test_very_short_duration(self):
+        """非常に短い動画のビットレート計算"""
+        # 1秒、100MB
+        bitrate = calculate_target_bitrate(1, 100)
+        assert bitrate > 0
+
+    def test_zero_duration(self):
+        """0秒の動画（ゼロ除算対策）"""
+        # 0秒はゼロ除算の可能性
+        try:
+            bitrate = calculate_target_bitrate(0, 100)
+            # 実装によってはエラーになるかもしれない
+        except ZeroDivisionError:
+            pass  # ゼロ除算は想定内
+
+    def test_negative_max_size(self):
+        """負のサイズ指定"""
+        bitrate = calculate_target_bitrate(60, -100)
+        # 最低ビットレート(500)が保証される
+        assert bitrate >= 500
+
+
+class TestVerifyVideoIntegrityEdgeCases:
+    """verify_video_integrity関数のエッジケーステスト"""
+
+    def test_directory_instead_of_file(self):
+        """ディレクトリを渡した場合"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = verify_video_integrity(temp_dir)
+            # ディレクトリは動画として無効
+            assert result is False
+
+    @patch("video_compressor.subprocess.run")
+    @patch("video_compressor.find_ffmpeg", return_value="ffmpeg")
+    def test_ffprobe_timeout(self, mock_find, mock_run):
+        """ffprobeがタイムアウトした場合"""
+        mock_run.side_effect = subprocess.TimeoutExpired(
+            cmd=["ffprobe"], timeout=30
+        )
+
+        if TEST_VIDEO_MOV.exists():
+            result = verify_video_integrity(str(TEST_VIDEO_MOV))
+            # タイムアウト時はFalseを返す
+            assert result is False
+
+    @patch("video_compressor.subprocess.run")
+    @patch("video_compressor.find_ffmpeg", return_value="ffmpeg")
+    def test_ffprobe_returns_empty(self, mock_find, mock_run):
+        """ffprobeが空の出力を返す場合"""
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+        if TEST_VIDEO_MOV.exists():
+            result = verify_video_integrity(str(TEST_VIDEO_MOV))
+            # 空の出力は整合性チェック失敗
+            assert result is False
+
+    @patch("video_compressor.subprocess.run")
+    @patch("video_compressor.find_ffmpeg", return_value="ffmpeg")
+    def test_ffprobe_nonzero_return(self, mock_find, mock_run):
+        """ffprobeが非ゼロを返す場合"""
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+        if TEST_VIDEO_MOV.exists():
+            result = verify_video_integrity(str(TEST_VIDEO_MOV))
+            # 非ゼロはFalseを返す
+            assert result is False
+
+
+class TestCompressionResultDataclass:
+    """CompressionResultデータクラスのテスト"""
+
+    def test_compression_result_creation(self):
+        """CompressionResultを作成できること"""
+        result = CompressionResult(
+            success=True,
+            input_path="/input/video.mov",
+            output_path="/output/video.webm",
+            original_size_mb=100.0,
+            compressed_size_mb=50.0,
+            compression_ratio=0.5,
+        )
+
+        assert result.success is True
+        assert result.original_size_mb == 100.0
+        assert result.compressed_size_mb == 50.0
+        assert result.compression_ratio == 0.5
+
+    def test_compression_result_with_error(self):
+        """エラーメッセージ付きCompressionResult"""
+        result = CompressionResult(
+            success=False,
+            input_path="/input/video.mov",
+            output_path="/input/video.mov",
+            original_size_mb=100.0,
+            compressed_size_mb=100.0,
+            compression_ratio=1.0,
+            error_message="圧縮に失敗しました",
+        )
+
+        assert result.success is False
+        assert result.error_message == "圧縮に失敗しました"
+
+    def test_compression_result_optional_fields(self):
+        """オプションフィールドのデフォルト値"""
+        result = CompressionResult(
+            success=True,
+            input_path="/input/video.mov",
+            output_path="/output/video.webm",
+            original_size_mb=100.0,
+            compressed_size_mb=50.0,
+            compression_ratio=0.5,
+        )
+
+        assert result.target_bitrate_kbps is None
+        assert result.error_message is None
+        assert result.backup_path is None
 
     def test_preserve_alpha_option(self):
         """preserve_alpha オプションのテスト"""

@@ -203,3 +203,107 @@ class TestSupportedExtensions:
         """必須の拡張子が含まれていること"""
         required = {".mp4", ".mov"}
         assert required.issubset(SUPPORTED_INPUT_EXTENSIONS)
+
+
+class TestGetFileSizeMbEdgeCases:
+    """get_file_size_mb関数のエッジケーステスト"""
+
+    def test_nonexistent_file_raises_error(self):
+        """存在しないファイルでエラーを発生すること"""
+        with pytest.raises(FileNotFoundError):
+            get_file_size_mb("/nonexistent/path/file.mp4")
+
+    def test_empty_file_returns_zero(self):
+        """空のファイルは0を返すこと"""
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            temp_path = f.name
+
+        try:
+            size = get_file_size_mb(temp_path)
+            assert size == 0.0
+        finally:
+            os.unlink(temp_path)
+
+
+class TestEnsureDirectoryEdgeCases:
+    """ensure_directory関数のエッジケーステスト"""
+
+    def test_nested_directory_creation(self):
+        """深くネストされたディレクトリを作成できること"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            deep_path = os.path.join(temp_dir, "a", "b", "c", "d", "e")
+            assert not os.path.exists(deep_path)
+
+            ensure_directory(deep_path)
+
+            assert os.path.exists(deep_path)
+            assert os.path.isdir(deep_path)
+
+    def test_file_path_instead_of_directory(self):
+        """ファイルパスを渡した場合はエラーになること"""
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            temp_file = f.name
+
+        try:
+            # 既存のファイルと同じパスにディレクトリを作成しようとする
+            with pytest.raises((FileExistsError, OSError)):
+                ensure_directory(temp_file)
+        finally:
+            os.unlink(temp_file)
+
+
+class TestGetOutputPathEdgeCases:
+    """get_output_path関数のエッジケーステスト"""
+
+    def test_unicode_filename(self):
+        """日本語ファイル名を正しく処理すること"""
+        result = get_output_path("/path/to/動画ファイル.mp4")
+        assert "動画ファイル_nobg" in result
+        assert result.endswith(".mov")
+
+    def test_filename_with_multiple_dots(self):
+        """複数のドットを含むファイル名を正しく処理すること"""
+        result = get_output_path("/path/to/my.video.file.mp4")
+        assert "my.video.file_nobg" in result
+        assert result.endswith(".mov")
+
+    def test_filename_with_spaces(self):
+        """スペースを含むファイル名を正しく処理すること"""
+        result = get_output_path("/path/to/my video file.mp4")
+        assert "my video file_nobg" in result
+        assert result.endswith(".mov")
+
+
+class TestIsSupportedVideoEdgeCases:
+    """is_supported_video関数のエッジケーステスト"""
+
+    def test_mixed_case_extension(self):
+        """大文字小文字混在の拡張子を正しく判定すること"""
+        assert is_supported_video("video.Mp4") is True
+        assert is_supported_video("video.MoV") is True
+
+    def test_empty_string(self):
+        """空文字列はFalseを返すこと"""
+        assert is_supported_video("") is False
+
+    def test_filename_without_extension(self):
+        """拡張子なしのファイル名"""
+        assert is_supported_video("video") is False
+        assert is_supported_video("videomp4") is False
+
+
+class TestFormatTimeEdgeCases:
+    """format_time関数のエッジケーステスト"""
+
+    def test_negative_seconds(self):
+        """負の秒数を処理すること"""
+        # 負の値でも処理できることを確認（実装依存）
+        result = format_time(-30)
+        # 負の値の処理は実装による
+        assert isinstance(result, str)
+
+    def test_very_large_seconds(self):
+        """非常に大きな秒数を処理すること"""
+        # 100時間
+        result = format_time(360000)
+        assert "100:00:00" in result or result.startswith("100")
