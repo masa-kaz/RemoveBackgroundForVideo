@@ -234,6 +234,9 @@ class E2ETestRunner:
             time.sleep(2)  # ファイル読み込み待機
             self.take_screenshot("03_file_selected")
 
+            # GPU警告ダイアログが表示されていれば閉じる
+            self.close_gpu_warning_dialog()
+
             self.record_result("Step2_SelectFile", True, f"Selected: {self.test_video_path.name}")
             return True
 
@@ -241,6 +244,31 @@ class E2ETestRunner:
             self.take_screenshot("02_error")
             self.record_result("Step2_SelectFile", False, str(e))
             return False
+
+    def close_gpu_warning_dialog(self):
+        """GPU警告ダイアログを閉じる"""
+        self.log("=== Checking for GPU warning dialog ===")
+        try:
+            # ダイアログが表示されるまで少し待機
+            time.sleep(1)
+
+            # 「了解」ボタンを探す（メインウィンドウ内のダイアログ）
+            # CustomTkinterのダイアログはメインウィンドウ内に表示される
+            rect = self.main_window.rectangle()
+
+            # ダイアログの「了解」ボタンの位置を推定（ウィンドウ中央付近）
+            dialog_btn_x = rect.left + (rect.width() // 2)
+            dialog_btn_y = rect.top + (rect.height() // 2) + 100  # ダイアログの下部にボタンがある
+
+            self.log(f"Clicking 'OK' button at ({dialog_btn_x}, {dialog_btn_y})")
+            pyautogui.click(dialog_btn_x, dialog_btn_y)
+            time.sleep(1)
+
+            self.take_screenshot("03b_gpu_dialog_closed")
+            self.log("GPU warning dialog closed (or was not present)")
+
+        except Exception as e:
+            self.log(f"GPU dialog close error (may not be present): {e}")
 
     def dump_window_controls(self):
         """ウィンドウ内のコントロールをダンプ（デバッグ用）"""
