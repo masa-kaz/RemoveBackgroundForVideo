@@ -1,0 +1,216 @@
+# Windows EXE E2Eテスト
+#
+# CPU版EXEをビルドし、pywinautoを使用してGUI操作のE2Eテストを実行する。
+#
+# テストシナリオ:
+#   1. 起動 - EXEを起動し、ウィンドウが表示されることを確認
+#   2. ファイル選択 - テスト動画を選択
+#   3. 処理開始 - 背景除去処理を実行
+#   4. 出力確認 - 出力ファイルが生成されることを確認
+#   5. 終了 - アプリケーションを終了
+#
+# トリガー:
+#   - 手動実行 (workflow_dispatch)
+#   - mainブランチへのプッシュ（オプション）
+
+name: E2E Test (Windows)
+
+on:
+  workflow_dispatch:  # 手動実行
+    inputs:
+      debug_mode:
+        description: 'Enable debug mode (keep VM for debugging)'
+        required: false
+        default: 'false'
+        type: boolean
+  # 自動実行を有効にする場合は以下のコメントを解除
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'src/**'
+  #     - 'tests/**'
+  #     - '.github/workflows/e2e-windows.yml'
+
+jobs:
+  e2e-test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-e2e-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-e2e-
+
+      # =============================================================================
+      # ビルド準備
+      # =============================================================================
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install E2E test dependencies
+        run: |
+          pip install pywinauto pyautogui Pillow
+
+      - name: Download ffmpeg
+        run: |
+          mkdir ffmpeg
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_temp"
+          Copy-Item "ffmpeg_temp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" "ffmpeg\ffmpeg.exe"
+          Remove-Item -Recurse -Force "ffmpeg_temp", "ffmpeg.zip"
+
+      - name: Create entry point script
+        run: |
+          @"
+          # -*- coding: utf-8 -*-
+          """PyInstaller用エントリーポイント"""
+          import sys
+          from pathlib import Path
+
+          # srcディレクトリをパスに追加
+          sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+          from main import main
+
+          if __name__ == "__main__":
+              main()
+          "@ | Out-File -FilePath run_app.py -Encoding utf8
+
+      # =============================================================================
+      # EXEビルド
+      # =============================================================================
+      - name: Build EXE (CPU version)
+        run: |
+          pyinstaller `
+            --name "BackgroundRemover_CPU" `
+            --onedir `
+            --windowed `
+            --icon "assets/icon.ico" `
+            --add-data "models;models" `
+            --add-data "src;src" `
+            --add-data "assets;assets" `
+            --add-data "ffmpeg;ffmpeg" `
+            --hidden-import "tkinter" `
+            --hidden-import "tkinter.ttk" `
+            --hidden-import "tkinter.filedialog" `
+            --hidden-import "tkinter.messagebox" `
+            --hidden-import "torch" `
+            --hidden-import "torchvision" `
+            --hidden-import "cv2" `
+            --hidden-import "PIL" `
+            --hidden-import "numpy" `
+            --hidden-import "tkinterdnd2" `
+            --hidden-import "customtkinter" `
+            --collect-all "torch" `
+            --collect-all "torchvision" `
+            --collect-all "tkinterdnd2" `
+            --collect-all "customtkinter" `
+            run_app.py
+
+      - name: Verify EXE exists
+        run: |
+          if (Test-Path "dist\BackgroundRemover_CPU\BackgroundRemover_CPU.exe") {
+            Write-Host "EXE build successful!"
+            Get-ChildItem "dist\BackgroundRemover_CPU" | Select-Object Name, Length
+          } else {
+            Write-Error "EXE not found!"
+            exit 1
+          }
+
+      # =============================================================================
+      # E2Eテスト実行
+      # =============================================================================
+      - name: Verify test video exists
+        run: |
+          if (Test-Path "tests\fixtures\TestVideo.mp4") {
+            Write-Host "Test video found"
+            Get-Item "tests\fixtures\TestVideo.mp4" | Select-Object FullName, Length
+          } else {
+            Write-Error "Test video not found!"
+            exit 1
+          }
+
+      - name: Run E2E Test
+        id: e2e_test
+        continue-on-error: true
+        run: |
+          # テスト出力ディレクトリを作成
+          mkdir -Force test_output\e2e
+
+          # E2Eテストを実行
+          python tests/e2e_windows_exe.py `
+            --exe-path "dist\BackgroundRemover_CPU\BackgroundRemover_CPU.exe" `
+            --test-video "tests\fixtures\TestVideo.mp4" `
+            --output-dir "test_output\e2e"
+
+          # 終了コードを記録
+          echo "E2E_EXIT_CODE=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+
+      - name: Check E2E test result
+        run: |
+          if (Test-Path "test_output\e2e\test_report.txt") {
+            Write-Host "=== E2E Test Report ==="
+            Get-Content "test_output\e2e\test_report.txt"
+          }
+
+      # =============================================================================
+      # アーティファクト保存
+      # =============================================================================
+      - name: Upload E2E test screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-screenshots
+          path: test_output/e2e/*.png
+          retention-days: 30
+
+      - name: Upload E2E test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-report
+          path: test_output/e2e/test_report.txt
+          retention-days: 30
+
+      - name: Upload output video (if generated)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-output-video
+          path: test_output/e2e/*.mov
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload EXE for debugging
+        uses: actions/upload-artifact@v4
+        if: ${{ inputs.debug_mode == 'true' }}
+        with:
+          name: BackgroundRemover_CPU_Debug
+          path: dist/BackgroundRemover_CPU/
+          retention-days: 7
+
+      # =============================================================================
+      # 結果判定
+      # =============================================================================
+      - name: Fail if E2E test failed
+        if: steps.e2e_test.outcome == 'failure'
+        run: |
+          Write-Error "E2E test failed! Check the uploaded screenshots and report for details."
+          exit 1
