@@ -252,6 +252,13 @@ class E2ETestRunner:
             # ダイアログが表示されるまで少し待機
             time.sleep(1)
 
+            # ウィンドウをフォアグラウンドに持ってくる
+            try:
+                self.main_window.set_focus()
+                time.sleep(0.3)
+            except Exception:
+                pass
+
             # 「了解」ボタンを探す（メインウィンドウ内のダイアログ）
             # CustomTkinterのダイアログはメインウィンドウ内に表示される
             rect = self.main_window.rectangle()
@@ -318,6 +325,23 @@ class E2ETestRunner:
         self.log("=== Step 3: Start Processing ===")
 
         try:
+            # ESCキーを押してスタートメニューなどを閉じる
+            self.log("Pressing ESC to close any open menus")
+            send_keys("{ESC}")
+            time.sleep(0.5)
+
+            # ウィンドウをフォアグラウンドに持ってくる
+            self.log("Bringing window to foreground")
+            try:
+                self.main_window.set_focus()
+                time.sleep(0.5)
+            except Exception as e:
+                self.log(f"set_focus failed: {e}")
+                # フォールバック: ウィンドウをクリックしてフォーカス
+                rect = self.main_window.rectangle()
+                pyautogui.click(rect.left + 100, rect.top + 50)
+                time.sleep(0.5)
+
             # デバッグ: ウィンドウコントロールをダンプ
             self.dump_window_controls()
 
