@@ -68,7 +68,6 @@ BackgroundRemoverApp = None
 CircularProgress = None
 CustomDialog = None
 Toast = None
-create_checkerboard_image = None
 
 try:
     from main import (
@@ -76,7 +75,6 @@ try:
         CircularProgress,
         CustomDialog,
         Toast,
-        create_checkerboard_image,
     )
     _HAS_GUI_CLASSES = True
 except ImportError:
@@ -141,6 +139,14 @@ class TestColors:
         """トースト色が仕様通りであること"""
         assert COLORS["toast_bg"] == "#263238"
         assert COLORS["toast_text"] == "#FFFFFF"
+
+    def test_disabled_color(self):
+        """無効状態の色が#BDBDBDであること"""
+        assert COLORS["disabled"] == "#BDBDBD"
+
+    def test_danger_hover_color(self):
+        """危険ボタンホバー色が#FFEBEEであること"""
+        assert COLORS["danger_hover"] == "#FFEBEE"
 
 
 # =============================================================================
@@ -269,7 +275,20 @@ class TestInitialState:
         assert BackgroundRemoverApp.STATE_INITIAL == "initial"
         assert BackgroundRemoverApp.STATE_FILE_SELECTED == "file_selected"
         assert BackgroundRemoverApp.STATE_PROCESSING == "processing"
+        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
         assert BackgroundRemoverApp.STATE_COMPLETE == "complete"
+
+    def test_all_state_constants_exist(self):
+        """すべての状態定数が存在すること"""
+        required_states = [
+            "STATE_INITIAL",
+            "STATE_FILE_SELECTED",
+            "STATE_PROCESSING",
+            "STATE_CONVERTING",
+            "STATE_COMPLETE",
+        ]
+        for state in required_states:
+            assert hasattr(BackgroundRemoverApp, state), f"Missing state: {state}"
 
 
 # =============================================================================
@@ -296,6 +315,23 @@ class TestProcessingState:
         """STATE_PROCESSING定数が存在すること"""
         assert hasattr(BackgroundRemoverApp, "STATE_PROCESSING")
         assert BackgroundRemoverApp.STATE_PROCESSING == "processing"
+
+
+# =============================================================================
+# 6.5. WebM変換中状態UIテスト
+# =============================================================================
+@pytest.mark.skipif(not _HAS_GUI_CLASSES, reason="GUI classes not available (no tkinter)")
+class TestConvertingState:
+    """WebM変換中状態UIが仕様通りか確認"""
+
+    def test_state_constant_exists(self):
+        """STATE_CONVERTING定数が存在すること"""
+        assert hasattr(BackgroundRemoverApp, "STATE_CONVERTING")
+        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
+
+    def test_converting_state_value(self):
+        """STATE_CONVERTINGが'converting'であること"""
+        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
 
 
 # =============================================================================
@@ -348,30 +384,7 @@ class TestToast:
 
 
 # =============================================================================
-# 10. 市松模様テスト
-# =============================================================================
-@pytest.mark.skipif(not _HAS_GUI_CLASSES, reason="GUI classes not available (no tkinter)")
-class TestCheckerboard:
-    """市松模様が正しく生成されるか確認"""
-
-    def test_create_checkerboard_image_exists(self):
-        """create_checkerboard_image関数が存在すること"""
-        assert create_checkerboard_image is not None
-
-    def test_create_checkerboard_image_size(self):
-        """指定サイズで市松模様画像が生成されること"""
-        width, height = 100, 100
-        img = create_checkerboard_image(width, height)
-        assert img.size == (width, height)
-
-    def test_create_checkerboard_image_mode(self):
-        """市松模様画像がRGBAモードであること"""
-        img = create_checkerboard_image(100, 100)
-        assert img.mode == "RGBA"
-
-
-# =============================================================================
-# 11. CircularProgressテスト
+# 10. CircularProgressテスト
 # =============================================================================
 class TestCircularProgress:
     """円形プログレスバーが仕様通りか確認"""
@@ -433,6 +446,8 @@ class TestIntegration:
             "success",
             "warning",
             "danger",
+            "danger_hover",
+            "disabled",
             "bg",
             "card",
             "border",
