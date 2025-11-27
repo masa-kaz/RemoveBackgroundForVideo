@@ -5,9 +5,7 @@ UI仕様書: .claude/workspace/task.md
 """
 
 import atexit
-import math
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -30,10 +28,9 @@ except ImportError:
 
 from rvm_model import RVMModel, download_model
 from video_processor import VideoProcessor, get_video_info, ProcessingCancelled
-from video_compressor import compress_if_needed, get_file_size_mb, DEFAULT_MAX_SIZE_MB
+from video_compressor import get_file_size_mb, DEFAULT_MAX_SIZE_MB
 from utils import (
     get_device_info,
-    get_output_path,
     is_supported_video,
     format_time,
     SUPPORTED_INPUT_EXTENSIONS,
@@ -52,6 +49,8 @@ COLORS = {
     "success": "#4CAF50",  # 成功
     "warning": "#FF9800",  # 警告
     "danger": "#F44336",  # エラー
+    "danger_hover": "#FFEBEE",  # 危険ボタンホバー時
+    "disabled": "#BDBDBD",  # 無効状態
     "bg": "#FAFAFA",  # 明るい背景
     "card": "#FFFFFF",  # カード背景
     "border": "#E0E0E0",  # ボーダー
@@ -170,24 +169,6 @@ def _show_already_running_message():
         root.destroy()
     except Exception:
         print("アプリは既に起動しています。")
-
-
-# =============================================================================
-# 市松模様生成
-# =============================================================================
-def create_checkerboard_image(width: int, height: int, cell_size: int = 10) -> Image.Image:
-    """市松模様の画像を生成"""
-    img = Image.new("RGBA", (width, height))
-    draw = ImageDraw.Draw(img)
-
-    colors = [(200, 200, 200, 255), (255, 255, 255, 255)]
-
-    for y in range(0, height, cell_size):
-        for x in range(0, width, cell_size):
-            color_index = ((x // cell_size) + (y // cell_size)) % 2
-            draw.rectangle([x, y, x + cell_size, y + cell_size], fill=colors[color_index])
-
-    return img
 
 
 # =============================================================================
@@ -975,7 +956,7 @@ class BackgroundRemoverApp:
             font=ctk.CTkFont(size=FONT_SIZES["button"]),
             height=SIZES["button_height"],
             fg_color="transparent",
-            hover_color="#FFEBEE",
+            hover_color=COLORS["danger_hover"],
             text_color=COLORS["danger"],
             border_width=1,
             border_color=COLORS["danger"],
@@ -1052,7 +1033,7 @@ class BackgroundRemoverApp:
             self.main_button.configure(
                 text="🚀 背景を除去する",
                 state="disabled",
-                fg_color="#BDBDBD",  # グレー背景
+                fg_color=COLORS["disabled"],
             )
             self.main_button.pack(fill="x", pady=(16, 0))
 
@@ -1096,7 +1077,7 @@ class BackgroundRemoverApp:
             self.main_button.configure(
                 text="🗜️ 変換中...",
                 state="disabled",
-                fg_color="#BDBDBD",  # グレー背景
+                fg_color=COLORS["disabled"],
             )
             self.main_button.pack(fill="x", pady=(0, 8))
 
@@ -1498,30 +1479,6 @@ class BackgroundRemoverApp:
 
         dialog.add_button("続ける", on_continue, primary=True)
         dialog.add_button("キャンセル", on_cancel, danger=True)
-
-    def _show_save_complete_dialog(self, save_path: str) -> None:
-        """保存完了ダイアログを表示"""
-        filename = Path(save_path).name
-        dialog = CustomDialog(
-            self.root,
-            title="保存完了",
-            icon="💾",
-            message="ファイルを保存しました",
-            sub_message=filename,
-        )
-
-        def open_folder():
-            dialog.destroy()
-            folder = Path(save_path).parent
-            if sys.platform == "darwin":
-                subprocess.run(["open", str(folder)])
-            elif sys.platform == "win32":
-                subprocess.run(["explorer", str(folder)])
-            else:
-                subprocess.run(["xdg-open", str(folder)])
-
-        dialog.add_button("フォルダを開く", open_folder, primary=True)
-        dialog.add_button("閉じる", dialog.destroy)
 
 
 # =============================================================================
