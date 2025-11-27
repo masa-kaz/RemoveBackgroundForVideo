@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """RobustVideoMatting モデル管理"""
 
+import io
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -64,7 +65,11 @@ class RVMModel:
             )
 
         # モデルをロード
-        self.model = torch.jit.load(str(self.model_path), map_location=self.device)
+        # Windows日本語パス対応: バイナリとして読み込んでからロード
+        # torch.jit.load(str(path)) は日本語パスで "Illegal byte sequence" エラーを起こす
+        with open(self.model_path, "rb") as f:
+            model_bytes = f.read()
+        self.model = torch.jit.load(io.BytesIO(model_bytes), map_location=self.device)
         self.model.eval()
 
         # recurrent状態をリセット
