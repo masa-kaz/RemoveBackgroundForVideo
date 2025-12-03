@@ -172,20 +172,33 @@ class SingleInstanceLock:
             self._lock_acquired = False
 
 
-def _show_already_running_message():
-    """既に起動中であることをダイアログで表示"""
+def _bring_existing_window_to_front():
+    """既存のウィンドウを前面に出す"""
+    window_title = "動画背景除去ツール by META AI LABO"
+
     try:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showinfo(
-            "動画背景除去ツール",
-            "アプリは既に起動しています。\n既存のウィンドウを使用してください。"
-        )
-        root.destroy()
+        if sys.platform == "darwin":
+            # macOS: AppleScriptでウィンドウをアクティブ化
+            script = f'''
+            tell application "System Events"
+                set frontmost of every process whose name contains "Python" to true
+            end tell
+            '''
+            subprocess.run(["osascript", "-e", script], capture_output=True)
+        elif sys.platform == "win32":
+            # Windows: ctypesでウィンドウを前面に出す
+            import ctypes
+            user32 = ctypes.windll.user32
+
+            # ウィンドウを検索
+            hwnd = user32.FindWindowW(None, window_title)
+            if hwnd:
+                # ウィンドウを前面に出す
+                SW_RESTORE = 9
+                user32.ShowWindow(hwnd, SW_RESTORE)
+                user32.SetForegroundWindow(hwnd)
     except Exception:
-        print("アプリは既に起動しています。")
+        pass  # エラーがあっても静かに終了
 
 
 # =============================================================================
@@ -690,9 +703,9 @@ class BackgroundRemoverApp:
         # 完了状態で処理済み画像がある場合
         if self.current_state == self.STATE_COMPLETE and self._original_processed_pil:
             img = self._original_processed_pil.resize((width, height), Image.Resampling.LANCZOS)
-            green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
-            green_bg.paste(img, (0, 0), img)
-            self.processed_thumbnail_image = ctk.CTkImage(light_image=green_bg, size=(width, height))
+            checkerboard = self._create_checkerboard(width, height)
+            checkerboard.paste(img, (0, 0), img)
+            self.processed_thumbnail_image = ctk.CTkImage(light_image=checkerboard, size=(width, height))
             self.thumbnail_label.configure(image=self.processed_thumbnail_image)
             # 強制的に再描画
             self.thumbnail_label.update_idletasks()
@@ -706,7 +719,7 @@ class BackgroundRemoverApp:
             self.thumbnail_label.update_idletasks()
 
     def _extract_processed_thumbnail(self, video_path: str) -> ctk.CTkImage | None:
-        """処理済み動画からサムネイルを抽出（グリーンバック背景）
+        """処理済み動画からサムネイルを抽出（市松模様背景）
 
         ProRes 4444のアルファチャンネルはOpenCVで読めないため、
         ffmpegでPNGとして抽出する
@@ -755,13 +768,13 @@ class BackgroundRemoverApp:
             # アスペクト比を維持してリサイズ
             img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
 
-            # グリーンバック背景を作成（#00FF00）
-            green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+            # 市松模様背景を作成
+            checkerboard = self._create_checkerboard(width, height)
 
-            # グリーンバックの上に処理済み画像を合成
-            green_bg.paste(img_resized, (0, 0), img_resized)
+            # 市松模様の上に処理済み画像を合成
+            checkerboard.paste(img_resized, (0, 0), img_resized)
 
-            return ctk.CTkImage(light_image=green_bg, size=(width, height))
+            return ctk.CTkImage(light_image=checkerboard, size=(width, height))
 
         except Exception:
             return None
@@ -792,16 +805,45 @@ class BackgroundRemoverApp:
             # アスペクト比を維持してリサイズ
             img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
 
-            # グリーンバック背景を作成（#00FF00）
-            green_bg = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+            # 市松模様背景を作成
+            checkerboard = self._create_checkerboard(width, height)
 
             # 画像を合成（アルファなしなのでそのまま）
-            green_bg.paste(img_resized, (0, 0))
+            checkerboard.paste(img_resized, (0, 0))
 
-            return ctk.CTkImage(light_image=green_bg, size=(width, height))
+            return ctk.CTkImage(light_image=checkerboard, size=(width, height))
 
         except Exception:
             return None
+
+    def _create_checkerboard(self, width: int, height: int, cell_size: int = 10) -> Image.Image:
+        """市松模様（チェッカーボード）画像を生成する
+
+        Args:
+            width: 画像の幅
+            height: 画像の高さ
+            cell_size: 1マスのサイズ（ピクセル）
+
+        Returns:
+            Image.Image: 市松模様のRGBA画像
+        """
+        # 白とライトグレーの2色
+        color1 = (255, 255, 255, 255)  # 白
+        color2 = (204, 204, 204, 255)  # ライトグレー
+
+        checkerboard = Image.new("RGBA", (width, height), color1)
+        draw = ImageDraw.Draw(checkerboard)
+
+        for y in range(0, height, cell_size):
+            for x in range(0, width, cell_size):
+                # 市松模様のパターン
+                if (x // cell_size + y // cell_size) % 2 == 1:
+                    draw.rectangle(
+                        [x, y, x + cell_size - 1, y + cell_size - 1],
+                        fill=color2
+                    )
+
+        return checkerboard
 
     def _get_ffmpeg_path(self) -> str:
         """ffmpegのパスを取得"""
@@ -1596,7 +1638,7 @@ def main():
     # 多重起動チェック
     lock = SingleInstanceLock()
     if not lock.acquire():
-        _show_already_running_message()
+        _bring_existing_window_to_front()
         sys.exit(0)
 
     # 終了時にロックを解放
