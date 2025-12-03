@@ -119,9 +119,21 @@ class SingleInstanceLock:
     def _is_process_running(self, pid: int) -> bool:
         """指定したPIDのプロセスが動作中か確認"""
         try:
-            os.kill(pid, 0)
-            return True
-        except (OSError, ProcessLookupError):
+            if sys.platform == "win32":
+                # Windows用: ctypesでプロセス存在確認
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                SYNCHRONIZE = 0x00100000
+                handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+                if handle:
+                    kernel32.CloseHandle(handle)
+                    return True
+                return False
+            else:
+                # Unix系: シグナル0で確認
+                os.kill(pid, 0)
+                return True
+        except Exception:
             return False
 
     def acquire(self) -> bool:
