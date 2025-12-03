@@ -110,11 +110,47 @@ jobs:
             --collect-all "customtkinter" `
             run_app.py
 
-      - name: Upload Artifact
+      - name: Upload Artifact (ZIP)
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_Windows_GPU_${{ steps.timestamp.outputs.value }}
           path: dist/BackgroundRemover_GPU
+          retention-days: 90
+
+      - name: Build GPU Installer with Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+        with:
+          path: installer/setup_gpu.iss
+          options: /O"dist"
+
+      - name: Verify GPU Installer was created
+        run: |
+          $installerPath = "dist/BackgroundRemover_GPU_Setup.exe"
+          if (Test-Path $installerPath) {
+            $size = (Get-Item $installerPath).Length
+            $sizeMB = [math]::Round($size / 1MB, 2)
+            Write-Host "✅ GPU Installer created successfully"
+            Write-Host "   Path: $installerPath"
+            Write-Host "   Size: $sizeMB MB"
+
+            # サイズ検証（500MB〜3GB）
+            if ($sizeMB -lt 500) {
+              Write-Host "⚠️ Warning: Installer size is smaller than expected ($sizeMB MB < 500 MB)"
+            } elseif ($sizeMB -gt 3000) {
+              Write-Host "⚠️ Warning: Installer size is larger than expected ($sizeMB MB > 3000 MB)"
+            } else {
+              Write-Host "✅ Installer size is within expected range"
+            }
+          } else {
+            Write-Host "❌ GPU Installer not found at $installerPath"
+            exit 1
+          }
+
+      - name: Upload GPU Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackgroundRemover_GPU_Setup_${{ steps.timestamp.outputs.value }}
+          path: dist/BackgroundRemover_GPU_Setup.exe
           retention-days: 90
 
   # =============================================================================
@@ -205,11 +241,47 @@ jobs:
             --collect-all "customtkinter" `
             run_app.py
 
-      - name: Upload Artifact
+      - name: Upload Artifact (ZIP)
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_Windows_CPU_${{ steps.timestamp.outputs.value }}
           path: dist/BackgroundRemover_CPU
+          retention-days: 90
+
+      - name: Build CPU Installer with Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+        with:
+          path: installer/setup_cpu.iss
+          options: /O"dist"
+
+      - name: Verify CPU Installer was created
+        run: |
+          $installerPath = "dist/BackgroundRemover_CPU_Setup.exe"
+          if (Test-Path $installerPath) {
+            $size = (Get-Item $installerPath).Length
+            $sizeMB = [math]::Round($size / 1MB, 2)
+            Write-Host "✅ CPU Installer created successfully"
+            Write-Host "   Path: $installerPath"
+            Write-Host "   Size: $sizeMB MB"
+
+            # サイズ検証（100MB〜1GB）
+            if ($sizeMB -lt 100) {
+              Write-Host "⚠️ Warning: Installer size is smaller than expected ($sizeMB MB < 100 MB)"
+            } elseif ($sizeMB -gt 1000) {
+              Write-Host "⚠️ Warning: Installer size is larger than expected ($sizeMB MB > 1000 MB)"
+            } else {
+              Write-Host "✅ Installer size is within expected range"
+            }
+          } else {
+            Write-Host "❌ CPU Installer not found at $installerPath"
+            exit 1
+          }
+
+      - name: Upload CPU Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackgroundRemover_CPU_Setup_${{ steps.timestamp.outputs.value }}
+          path: dist/BackgroundRemover_CPU_Setup.exe
           retention-days: 90
 
   # =============================================================================

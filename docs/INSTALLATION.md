@@ -10,26 +10,39 @@
 
 | ファイル | 対象環境 | 備考 |
 |---------|---------|------|
-| `BackgroundRemover_Windows_GPU.zip` | Windows + NVIDIA GPU | 高速処理（推奨） |
+| `BackgroundRemover_Setup.exe` | Windows + NVIDIA GPU | **インストーラー版（推奨）** |
+| `BackgroundRemover_Windows_GPU.zip` | Windows + NVIDIA GPU | ZIP版（上級者向け） |
 | `BackgroundRemover_Windows_CPU.zip` | Windows（GPU不要） | 軽量版、処理は低速 |
 | `BackgroundRemover_macOS.zip` | macOS (Apple Silicon) | M1/M2 Mac向け |
 
 ### インストール手順
 
+#### Windows（インストーラー版 - 推奨）
+
+1. `BackgroundRemover_Setup.exe` をダウンロード
+2. ダブルクリックして実行
+3. インストールウィザードに従ってインストール
+4. デスクトップまたはスタートメニューのショートカットから起動
+
+**メリット:**
+- パス長制限の問題を自動回避
+- アンインストール機能付き
+- ショートカット自動作成
+
+#### Windows（ZIP版）
+
 1. ZIPファイルを解凍
-2. **Windows**: `BackgroundRemover_GPU.exe` または `BackgroundRemover_CPU.exe` を実行
-3. **macOS**: `BackgroundRemover_Mac.app` をダブルクリック（初回は右クリック→「開く」）
+2. `BackgroundRemover_GPU.exe` または `BackgroundRemover_CPU.exe` を実行
+
+> **注意**: ZIPファイルは `C:\RBV` などドライブ直下の短いパスに解凍してください。
+> 長いパスでは解凍に失敗する場合があります（エラーコード: `0x80010135`）。
+
+#### macOS
+
+1. ZIPファイルを解凍
+2. `BackgroundRemover_Mac.app` をダブルクリック（初回は右クリック→「開く」）
 
 **注意**: macOSでは初回起動時に「開発元を確認できない」という警告が表示される場合があります。その場合は、右クリック→「開く」を選択してください。
-
-### Windows版の注意事項（パス長制限）
-
-ZIPファイルは **ドライブ直下の短いフォルダ** に解凍してください。
-
-- ✅ 推奨: `C:\RBV` や `D:\app`
-- ❌ 非推奨: `C:\Users\ユーザー名\Downloads\RemoveBackgroundForVideo_GPU_Windows`
-
-Windowsのパス長制限（260文字）により、長いパスでは解凍に失敗する場合があります（エラーコード: `0x80010135`）。
 
 ---
 
