@@ -118,10 +118,8 @@ jobs:
           retention-days: 90
 
       - name: Build GPU Installer with Inno Setup
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
-        with:
-          path: installer/setup_gpu.iss
-          options: /O"dist"
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /O"dist" installer\setup_gpu.iss
 
       - name: Verify GPU Installer was created
         run: |
@@ -249,10 +247,8 @@ jobs:
           retention-days: 90
 
       - name: Build CPU Installer with Inno Setup
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
-        with:
-          path: installer/setup_cpu.iss
-          options: /O"dist"
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /O"dist" installer\setup_cpu.iss
 
       - name: Verify CPU Installer was created
         run: |
