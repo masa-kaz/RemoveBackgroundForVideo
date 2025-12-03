@@ -28,7 +28,6 @@ except ImportError:
 
 from rvm_model import RVMModel, download_model
 from video_processor import VideoProcessor, get_video_info, ProcessingCancelled
-from video_compressor import get_file_size_mb, DEFAULT_MAX_SIZE_MB
 from utils import (
     get_device_info,
     is_supported_video,
@@ -279,14 +278,42 @@ class CircularProgress(ctk.CTkFrame):
             bold=True,
         )
 
-        # フレーム数テキスト（白縁黒文字）
+        # フレーム数テキスト（白縁黒文字、動的フォントサイズ）
         if self._frame_text:
+            # 円内に収まるようにフォントサイズを動的に調整
+            frame_font_size = self._calculate_frame_font_size(self._frame_text)
             self._draw_text_with_outline(
                 center, center + 25,
                 self._frame_text,
-                FONT_SIZES["frame_count"],
+                frame_font_size,
                 bold=False,
             )
+
+    def _calculate_frame_font_size(self, text: str) -> int:
+        """フレーム数テキストのフォントサイズを動的に計算する
+
+        Args:
+            text: 表示するテキスト
+
+        Returns:
+            int: フォントサイズ
+        """
+        base_font_size = FONT_SIZES["frame_count"]  # 18
+        # 円の内側で使える幅（線幅とパディングを考慮）
+        available_width = self._size - self._line_width * 4  # 約100px
+
+        # 文字数に応じてフォントサイズを調整
+        # 基準: 12文字程度（例: "1,234 / 5,678 f"）で基本サイズ
+        text_length = len(text)
+
+        if text_length <= 12:
+            return base_font_size
+        elif text_length <= 15:
+            return int(base_font_size * 0.85)  # 15
+        elif text_length <= 18:
+            return int(base_font_size * 0.72)  # 13
+        else:
+            return int(base_font_size * 0.61)  # 11
 
     def set(self, value: float, current: int = 0, total: int = 0):
         """進捗を設定 (0.0 ~ 1.0)"""
@@ -464,7 +491,6 @@ class BackgroundRemoverApp:
     STATE_FILE_SELECTED = "file_selected"
     STATE_PROCESSING = "processing"
     STATE_COMPLETE = "complete"
-    STATE_CONVERTING = "converting"  # WebM変換中
 
     def __init__(self, root):
         """アプリケーションを初期化する"""
@@ -1070,21 +1096,11 @@ class BackgroundRemoverApp:
             self.retry_link.pack(side="left", expand=True)
             self.process_another_link.pack(side="left", expand=True)
 
-        elif self.current_state == self.STATE_CONVERTING:
-            # WebM変換中：全ボタン無効化
-            self.thumbnail_frame.pack(fill="both", expand=True)
-            self.complete_label.pack(pady=(0, 16))
-            self.main_button.configure(
-                text="🗜️ 変換中...",
-                state="disabled",
-                fg_color=COLORS["disabled"],
-            )
-            self.main_button.pack(fill="x", pady=(0, 8))
 
     def _on_drop(self, event) -> None:
         """ファイルがドロップされたときの処理"""
-        # 処理中・変換中は無視
-        if self.current_state in (self.STATE_PROCESSING, self.STATE_CONVERTING):
+        # 処理中は無視
+        if self.current_state == self.STATE_PROCESSING:
             self._reset_drop_zone()
             return
 
@@ -1127,8 +1143,8 @@ class BackgroundRemoverApp:
 
     def _select_input(self) -> None:
         """入力ファイルを選択する"""
-        # 処理中・変換中は無視
-        if self.current_state in (self.STATE_PROCESSING, self.STATE_CONVERTING):
+        # 処理中は無視
+        if self.current_state == self.STATE_PROCESSING:
             return
 
         filetypes = [
@@ -1191,8 +1207,8 @@ class BackgroundRemoverApp:
 
     def _on_main_button_click(self) -> None:
         """メインボタンがクリックされたときの処理"""
-        # 処理中・変換中は無視
-        if self.current_state in (self.STATE_PROCESSING, self.STATE_CONVERTING):
+        # 処理中は無視
+        if self.current_state == self.STATE_PROCESSING:
             return
         if self.current_state == self.STATE_FILE_SELECTED:
             self._start_processing()
@@ -1208,7 +1224,7 @@ class BackgroundRemoverApp:
 
     def _on_retry(self) -> None:
         """やり直しリンクがクリックされたときの処理"""
-        # 完了状態のみ有効（変換中は無視）
+        # 完了状態のみ有効
         if self.current_state != self.STATE_COMPLETE:
             return
         self.current_state = self.STATE_FILE_SELECTED
@@ -1216,7 +1232,7 @@ class BackgroundRemoverApp:
 
     def _on_process_another(self) -> None:
         """別の動画を処理リンクがクリックされたときの処理"""
-        # 完了状態のみ有効（変換中は無視）
+        # 完了状態のみ有効
         if self.current_state != self.STATE_COMPLETE:
             return
         self.input_path = ""
@@ -1238,8 +1254,8 @@ class BackgroundRemoverApp:
         # 円形プログレスをリセット
         self.circular_progress.reset()
 
-        # 一時出力先を設定
-        self.temp_output_path = tempfile.mktemp(suffix=".mov")
+        # 一時出力先を設定（直接WebM形式で出力）
+        self.temp_output_path = tempfile.mktemp(suffix=".webm")
 
         # 別スレッドで処理
         thread = threading.Thread(target=self._process_video)
@@ -1332,7 +1348,7 @@ class BackgroundRemoverApp:
         self.root.after(0, handle_error)
 
     def _save_output_file(self) -> None:
-        """出力ファイルを保存する（WebM形式で軽量化）"""
+        """出力ファイルを保存する"""
         input_name = Path(self.input_path).stem
         default_name = f"{input_name}_nobg.webm"
 
@@ -1345,84 +1361,36 @@ class BackgroundRemoverApp:
 
         if save_path:
             try:
-                # 変換中状態に遷移（ボタン無効化）
-                self.current_state = self.STATE_CONVERTING
-                self._update_ui_state()
-                self.root.update()
+                import shutil
+                # 一時ファイルを保存先にコピー
+                shutil.copy2(self.temp_output_path, save_path)
+                self.output_path = save_path
 
-                # 元のMOVファイルサイズを取得
-                original_size_mb = get_file_size_mb(self.temp_output_path)
+                # 一時ファイルを削除
+                if Path(self.temp_output_path).exists():
+                    os.remove(self.temp_output_path)
 
-                # WebM形式に変換して保存
-                self._convert_to_webm(save_path, original_size_mb)
+                # 保存完了ダイアログを表示
+                self._show_save_complete_dialog(save_path)
+
             except Exception as e:
-                # エラー時は完了状態に戻す
-                self.current_state = self.STATE_COMPLETE
-                self._update_ui_state()
                 self._show_error_dialog("ファイルの保存に失敗しました", str(e))
 
-    def _convert_to_webm(self, save_path: str, original_size_mb: float) -> None:
-        """MOVをWebM形式に変換して保存する"""
-        # 変換中ダイアログを表示
-        convert_dialog = CustomDialog(
-            self.root,
-            title="変換中",
-            icon="🗜️",
-            message="WebM形式に変換しています...",
-            sub_message=f"元のサイズ: {original_size_mb:.1f} MB → 軽量化中",
-            height=200,
-        )
-        convert_dialog.update()
+    def _show_save_complete_dialog(self, save_path: str) -> None:
+        """保存完了ダイアログを表示"""
+        # ファイルサイズを取得
+        size_mb = os.path.getsize(save_path) / (1024 * 1024)
 
-        # WebM変換実行
-        from video_compressor import compress_video
-        result = compress_video(
-            self.temp_output_path,
-            output_path=save_path,
-            max_size_mb=DEFAULT_MAX_SIZE_MB,
-            preserve_alpha=True,
-        )
-
-        convert_dialog.destroy()
-
-        if result.success:
-            self.output_path = result.output_path
-            # 元のMOV一時ファイルを削除
-            if Path(self.temp_output_path).exists():
-                os.remove(self.temp_output_path)
-            # 状態を完了に戻す
-            self.current_state = self.STATE_COMPLETE
-            self._update_ui_state()
-            self._show_conversion_complete_dialog(
-                result.output_path,
-                original_size_mb,
-                result.compressed_size_mb,
-            )
-        else:
-            # 状態を完了に戻す
-            self.current_state = self.STATE_COMPLETE
-            self._update_ui_state()
-            self._show_error_dialog(
-                "変換に失敗しました",
-                f"{result.error_message}"
-            )
-
-    def _show_conversion_complete_dialog(
-        self, save_path: str, original_mb: float, compressed_mb: float
-    ) -> None:
-        """変換完了ダイアログを表示"""
-        reduction = ((original_mb - compressed_mb) / original_mb) * 100
         dialog = CustomDialog(
             self.root,
             title="保存完了",
             icon="✅",
-            message="WebM形式で保存しました",
+            message="保存しました",
             sub_message=(
                 f"保存先: {save_path}\n\n"
-                f"元のサイズ: {original_mb:.1f} MB\n"
-                f"変換後: {compressed_mb:.1f} MB ({reduction:.0f}%削減)"
+                f"ファイルサイズ: {size_mb:.1f} MB"
             ),
-            height=280,
+            height=240,
         )
         dialog.add_button("閉じる", dialog.destroy, primary=True)
 

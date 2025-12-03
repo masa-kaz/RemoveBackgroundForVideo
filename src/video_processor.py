@@ -243,8 +243,8 @@ class VideoProcessor:
             if self.is_cancelled():
                 raise ProcessingCancelled("処理がキャンセルされました")
 
-            # PNGシーケンスからMOV (ProRes 4444) を生成（音声付き）
-            self._create_prores_video(
+            # PNGシーケンスからWebM (VP9) を生成（音声付き）
+            self._create_webm_video(
                 frames_dir=temp_path,
                 input_path=input_path,
                 output_path=output_path,
@@ -348,7 +348,7 @@ class VideoProcessor:
 
         return Image.fromarray(rgba, mode="RGBA")
 
-    def _create_prores_video(
+    def _create_webm_video(
         self,
         frames_dir: Path,
         input_path: str,
@@ -356,7 +356,7 @@ class VideoProcessor:
         fps: float,
         has_audio: bool = False,
     ) -> None:
-        """PNGシーケンスからProRes 4444動画を生成する（音声付き）
+        """PNGシーケンスからWebM (VP9) 動画を生成する（音声付き）
 
         Args:
             frames_dir: フレームが格納されたディレクトリ
@@ -375,12 +375,15 @@ class VideoProcessor:
                 "-framerate", str(fps),
                 "-i", input_pattern,
                 "-i", input_path,  # 元動画から音声を取得
-                "-c:v", "prores_ks",
-                "-profile:v", "4444",  # ProRes 4444
-                "-pix_fmt", "yuva444p10le",  # アルファチャンネル付き
-                "-q:v", "10",  # 品質（0-32、低いほど高品質）
-                "-c:a", "aac",  # 音声コーデック
-                "-b:a", "192k",  # 音声ビットレート
+                "-c:v", "libvpx-vp9",
+                "-pix_fmt", "yuva420p",  # アルファチャンネル付き
+                "-b:v", "2M",  # ビットレート
+                "-crf", "30",  # 品質設定（低いほど高品質）
+                "-deadline", "good",  # バランス重視
+                "-cpu-used", "4",  # エンコード速度
+                "-row-mt", "1",  # マルチスレッド有効
+                "-c:a", "libopus",  # 音声コーデック
+                "-b:a", "128k",  # 音声ビットレート
                 "-map", "0:v:0",  # 映像は最初の入力から
                 "-map", "1:a:0?",  # 音声は2番目の入力から（存在する場合）
                 "-shortest",  # 短い方に合わせる
@@ -393,10 +396,13 @@ class VideoProcessor:
                 "-y",  # 上書き確認なし
                 "-framerate", str(fps),
                 "-i", input_pattern,
-                "-c:v", "prores_ks",
-                "-profile:v", "4444",  # ProRes 4444
-                "-pix_fmt", "yuva444p10le",  # アルファチャンネル付き
-                "-q:v", "10",  # 品質（0-32、低いほど高品質）
+                "-c:v", "libvpx-vp9",
+                "-pix_fmt", "yuva420p",  # アルファチャンネル付き
+                "-b:v", "2M",  # ビットレート
+                "-crf", "30",  # 品質設定（低いほど高品質）
+                "-deadline", "good",  # バランス重視
+                "-cpu-used", "4",  # エンコード速度
+                "-row-mt", "1",  # マルチスレッド有効
                 output_path,
             ]
 

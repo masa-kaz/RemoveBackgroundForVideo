@@ -43,7 +43,7 @@ class RVMModel:
         self.device = device or get_device()
         self.model: Optional[nn.Module] = None
         self.rec: Optional[Tuple[torch.Tensor, ...]] = None
-        self.downsample_ratio: float = 0.25
+        self.downsample_ratio: float = 0.5
 
         # モデルパスの決定
         if model_path:
