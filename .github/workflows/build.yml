@@ -28,10 +28,10 @@ jobs:
   build-windows-gpu:
     runs-on: windows-latest
     steps:
-      - name: Generate timestamp
+      - name: Generate timestamp (JST)
         id: timestamp
         run: |
-          $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmm")
+          $timestamp = (Get-Date).ToUniversalTime().AddHours(9).ToString("yyyyMMdd-HHmm")
           echo "value=v$timestamp" >> $env:GITHUB_OUTPUT
 
       - name: Checkout
@@ -157,10 +157,10 @@ jobs:
   build-windows-cpu:
     runs-on: windows-latest
     steps:
-      - name: Generate timestamp
+      - name: Generate timestamp (JST)
         id: timestamp
         run: |
-          $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmm")
+          $timestamp = (Get-Date).ToUniversalTime().AddHours(9).ToString("yyyyMMdd-HHmm")
           echo "value=v$timestamp" >> $env:GITHUB_OUTPUT
 
       - name: Checkout
@@ -286,10 +286,10 @@ jobs:
   build-macos:
     runs-on: macos-14  # Apple Silicon (M1) ランナー
     steps:
-      - name: Generate timestamp
+      - name: Generate timestamp (JST)
         id: timestamp
         run: |
-          TIMESTAMP=$(date -u +"%Y%m%d-%H%M")
+          TIMESTAMP=$(TZ='Asia/Tokyo' date +"%Y%m%d-%H%M")
           echo "value=v${TIMESTAMP}" >> $GITHUB_OUTPUT
 
       - name: Checkout

@@ -1,6 +1,7 @@
 """動画処理ロジック"""
 
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Callable
@@ -25,6 +26,23 @@ class ProcessingCancelled(Exception):
 
 # ファイルサイズ上限 (MB)
 MAX_FILE_SIZE_MB = 1023
+
+
+def _get_subprocess_args() -> dict:
+    """Windowsでコンソールウィンドウを非表示にするためのsubprocess引数を取得する
+
+    Returns:
+        dict: subprocess.run()に渡す追加引数
+    """
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        return {
+            "startupinfo": startupinfo,
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+        }
+    return {}
 
 
 @dataclass
@@ -242,6 +260,7 @@ def _check_audio_stream(video_path: str, ffmpeg_path: str | None = None) -> bool
             ],
             capture_output=True,
             text=True,
+            **_get_subprocess_args(),
         )
         return "audio" in result.stdout
     except (FileNotFoundError, subprocess.CalledProcessError):
@@ -275,6 +294,7 @@ def find_ffmpeg() -> str:
                     ["ffmpeg", "-version"],
                     capture_output=True,
                     check=True,
+                    **_get_subprocess_args(),
                 )
                 return "ffmpeg"
             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -528,6 +548,7 @@ class VideoProcessor:
             cmd,
             capture_output=True,
             text=True,
+            **_get_subprocess_args(),
         )
 
         if result.returncode != 0:
