@@ -27,7 +27,13 @@ except ImportError:
     HAS_DND = False
 
 from rvm_model import RVMModel, download_model
-from video_processor import VideoProcessor, get_video_info, ProcessingCancelled
+from video_processor import (
+    VideoProcessor,
+    get_video_info,
+    ProcessingCancelled,
+    OutputParams,
+    calculate_optimal_params,
+)
 from utils import (
     get_device_info,
     is_supported_video,
@@ -520,6 +526,7 @@ class BackgroundRemoverApp:
         self.temp_output_path: str = ""
         self.is_processing: bool = False
         self.file_selected: bool = False
+        self.output_params: OutputParams | None = None  # 出力パラメータ（調整情報）
 
         # デバイス情報を取得
         self.device_info: DeviceInfo = get_device_info()
@@ -1277,8 +1284,17 @@ class BackgroundRemoverApp:
         # 円形プログレスをリセット
         self.circular_progress.reset()
 
-        # 一時出力先を設定（直接WebM形式で出力）
-        self.temp_output_path = tempfile.mktemp(suffix=".webm")
+        # 一時出力先を設定（ProRes 4444形式で出力）
+        self.temp_output_path = tempfile.mktemp(suffix=".mov")
+
+        # 動画情報を取得して最適パラメータを計算
+        video_info = get_video_info(self.input_path)
+        self.output_params = calculate_optimal_params(
+            width=video_info.width,
+            height=video_info.height,
+            fps=video_info.fps,
+            duration_sec=video_info.duration,
+        )
 
         # 別スレッドで処理
         thread = threading.Thread(target=self._process_video)
@@ -1301,10 +1317,11 @@ class BackgroundRemoverApp:
 
                 self.processor = VideoProcessor(self.model)
 
-            # 処理を実行
+            # 処理を実行（出力パラメータを渡す）
             self.processor.process(
                 input_path=self.input_path,
                 output_path=self.temp_output_path,
+                output_params=self.output_params,
                 progress_callback=self._on_progress,
             )
 
@@ -1373,13 +1390,13 @@ class BackgroundRemoverApp:
     def _save_output_file(self) -> None:
         """出力ファイルを保存する"""
         input_name = Path(self.input_path).stem
-        default_name = f"{input_name}_nobg.webm"
+        default_name = f"{input_name}_nobg.mov"
 
         save_path = ctk.filedialog.asksaveasfilename(
             title="保存先を選択",
-            defaultextension=".webm",
+            defaultextension=".mov",
             initialfile=default_name,
-            filetypes=[("WebM (VP9透過)", "*.webm")],
+            filetypes=[("MOV (ProRes 4444透過)", "*.mov")],
         )
 
         if save_path:
@@ -1404,6 +1421,26 @@ class BackgroundRemoverApp:
         # ファイルサイズを取得
         size_mb = os.path.getsize(save_path) / (1024 * 1024)
 
+        # 調整情報を構築
+        adjustment_info = ""
+        if self.output_params and self.output_params.is_adjusted:
+            adjustments = []
+            if self.output_params.resolution_adjusted:
+                adjustments.append(
+                    f"解像度: {self.output_params.original_width}x{self.output_params.original_height} "
+                    f"→ {self.output_params.width}x{self.output_params.height}"
+                )
+            if self.output_params.fps_adjusted:
+                adjustments.append(
+                    f"フレームレート: {self.output_params.original_fps:.0f}fps "
+                    f"→ {self.output_params.fps:.0f}fps"
+                )
+            if adjustments:
+                adjustment_info = "\n\n" + "\n".join(adjustments)
+
+        # ダイアログの高さを調整
+        dialog_height = 240 if not adjustment_info else 300
+
         dialog = CustomDialog(
             self.root,
             title="保存完了",
@@ -1412,10 +1449,20 @@ class BackgroundRemoverApp:
             sub_message=(
                 f"保存先: {save_path}\n\n"
                 f"ファイルサイズ: {size_mb:.1f} MB"
+                f"{adjustment_info}"
             ),
-            height=240,
+            height=dialog_height,
         )
         dialog.add_button("閉じる", dialog.destroy, primary=True)
+
+        # 3秒後に自動で閉じる
+        def auto_close():
+            try:
+                dialog.destroy()
+            except Exception:
+                pass  # 既に閉じられている場合は無視
+
+        self.root.after(3000, auto_close)
 
     # =========================================================================
     # ダイアログ

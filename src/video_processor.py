@@ -23,6 +23,139 @@ class ProcessingCancelled(Exception):
     pass
 
 
+# ファイルサイズ上限 (MB)
+MAX_FILE_SIZE_MB = 1023
+
+
+@dataclass
+class OutputParams:
+    """出力パラメータを格納するデータクラス"""
+    width: int
+    height: int
+    fps: float
+    original_width: int
+    original_height: int
+    original_fps: float
+    is_adjusted: bool = False  # 調整されたかどうか
+
+    @property
+    def resolution_adjusted(self) -> bool:
+        """解像度が調整されたか"""
+        return self.width != self.original_width or self.height != self.original_height
+
+    @property
+    def fps_adjusted(self) -> bool:
+        """fpsが調整されたか"""
+        return self.fps != self.original_fps
+
+
+def estimate_prores_size_mb(width: int, height: int, fps: float, duration_sec: float) -> float:
+    """ProRes 4444の推定ファイルサイズを計算する
+
+    Args:
+        width: 幅
+        height: 高さ
+        fps: フレームレート
+        duration_sec: 動画の長さ（秒）
+
+    Returns:
+        float: 推定ファイルサイズ (MB)
+    """
+    # ProRes 4444: 約0.8 bits/pixel/frame が経験則的な目安
+    bits_per_frame = width * height * 0.8
+    total_bits = bits_per_frame * fps * duration_sec
+    size_mb = total_bits / 8 / 1024 / 1024
+    return size_mb
+
+
+def calculate_optimal_params(
+    width: int,
+    height: int,
+    fps: float,
+    duration_sec: float,
+    max_size_mb: float = MAX_FILE_SIZE_MB,
+) -> OutputParams:
+    """1023MB以下に収まる最適なパラメータを計算する
+
+    Args:
+        width: 元の幅
+        height: 元の高さ
+        fps: 元のフレームレート
+        duration_sec: 動画の長さ（秒）
+        max_size_mb: 最大ファイルサイズ (MB)
+
+    Returns:
+        OutputParams: 最適化されたパラメータ
+    """
+    current_width = width
+    current_height = height
+    current_fps = fps
+
+    # Step 1: 現在のパラメータで推定
+    estimated_size = estimate_prores_size_mb(current_width, current_height, current_fps, duration_sec)
+
+    if estimated_size <= max_size_mb:
+        return OutputParams(
+            width=current_width,
+            height=current_height,
+            fps=current_fps,
+            original_width=width,
+            original_height=height,
+            original_fps=fps,
+            is_adjusted=False,
+        )
+
+    # Step 2: fps削減（60fps以上なら30fpsに）
+    if current_fps > 30:
+        current_fps = 30.0
+        estimated_size = estimate_prores_size_mb(current_width, current_height, current_fps, duration_sec)
+        if estimated_size <= max_size_mb:
+            return OutputParams(
+                width=current_width,
+                height=current_height,
+                fps=current_fps,
+                original_width=width,
+                original_height=height,
+                original_fps=fps,
+                is_adjusted=True,
+            )
+
+    # Step 3: 解像度ダウンスケール（段階的）
+    scale_factors = [0.75, 0.5, 0.375, 0.25]
+
+    for scale in scale_factors:
+        # 偶数に丸める（ffmpegの要件）
+        new_width = round(width * scale / 2) * 2
+        new_height = round(height * scale / 2) * 2
+
+        estimated_size = estimate_prores_size_mb(new_width, new_height, current_fps, duration_sec)
+
+        if estimated_size <= max_size_mb:
+            return OutputParams(
+                width=new_width,
+                height=new_height,
+                fps=current_fps,
+                original_width=width,
+                original_height=height,
+                original_fps=fps,
+                is_adjusted=True,
+            )
+
+    # それでも収まらない場合は最小設定で返す
+    final_width = round(width * 0.25 / 2) * 2
+    final_height = round(height * 0.25 / 2) * 2
+
+    return OutputParams(
+        width=final_width,
+        height=final_height,
+        fps=current_fps,
+        original_width=width,
+        original_height=height,
+        original_fps=fps,
+        is_adjusted=True,
+    )
+
+
 @dataclass
 class VideoInfo:
     """動画情報を格納するデータクラス"""
@@ -195,6 +328,7 @@ class VideoProcessor:
         self,
         input_path: str,
         output_path: Optional[str] = None,
+        output_params: Optional[OutputParams] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> str:
         """動画の背景を除去して透過MOVを出力する
@@ -202,6 +336,7 @@ class VideoProcessor:
         Args:
             input_path: 入力動画のパス
             output_path: 出力ファイルのパス（Noneの場合は自動生成）
+            output_params: 出力パラメータ（解像度、fps）。Noneの場合は自動計算
             progress_callback: 進捗コールバック関数 (current_frame, total_frames)
 
         Returns:
@@ -227,6 +362,15 @@ class VideoProcessor:
         # 動画情報を取得
         video_info = get_video_info(input_path, self.ffmpeg_path)
 
+        # 出力パラメータが指定されていない場合は自動計算
+        if output_params is None:
+            output_params = calculate_optimal_params(
+                width=video_info.width,
+                height=video_info.height,
+                fps=video_info.fps,
+                duration_sec=video_info.duration,
+            )
+
         # 一時ディレクトリを作成
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -243,12 +387,12 @@ class VideoProcessor:
             if self.is_cancelled():
                 raise ProcessingCancelled("処理がキャンセルされました")
 
-            # PNGシーケンスからWebM (VP9) を生成（音声付き）
-            self._create_webm_video(
+            # PNGシーケンスからProRes 4444を生成（音声付き）
+            self._create_prores_video(
                 frames_dir=temp_path,
                 input_path=input_path,
                 output_path=output_path,
-                fps=video_info.fps,
+                output_params=output_params,
                 has_audio=video_info.has_audio,
             )
 
@@ -348,63 +492,82 @@ class VideoProcessor:
 
         return Image.fromarray(rgba, mode="RGBA")
 
-    def _create_webm_video(
+    def _create_prores_video(
         self,
         frames_dir: Path,
         input_path: str,
         output_path: str,
-        fps: float,
+        output_params: OutputParams,
         has_audio: bool = False,
     ) -> None:
-        """PNGシーケンスからWebM (VP9) 動画を生成する（音声付き）
+        """PNGシーケンスからProRes 4444動画を生成する（音声付き）
 
         Args:
             frames_dir: フレームが格納されたディレクトリ
             input_path: 入力動画のパス（音声抽出用）
             output_path: 出力ファイルパス
-            fps: フレームレート
+            output_params: 出力パラメータ（解像度、fps）
             has_audio: 音声を含めるかどうか
         """
         input_pattern = str(frames_dir / "frame_%06d.png")
+
+        # スケールフィルタを構築（解像度調整が必要な場合）
+        vf_filters = []
+        if output_params.resolution_adjusted:
+            vf_filters.append(f"scale={output_params.width}:{output_params.height}")
 
         if has_audio:
             # 音声付きで出力
             cmd = [
                 self.ffmpeg_path,
                 "-y",  # 上書き確認なし
-                "-framerate", str(fps),
+                "-framerate", str(output_params.original_fps),  # 入力のfps
                 "-i", input_pattern,
                 "-i", input_path,  # 元動画から音声を取得
-                "-c:v", "libvpx-vp9",
-                "-pix_fmt", "yuva420p",  # アルファチャンネル付き
-                "-b:v", "2M",  # ビットレート
-                "-crf", "30",  # 品質設定（低いほど高品質）
-                "-deadline", "good",  # バランス重視
-                "-cpu-used", "4",  # エンコード速度
-                "-row-mt", "1",  # マルチスレッド有効
-                "-c:a", "libopus",  # 音声コーデック
-                "-b:a", "128k",  # 音声ビットレート
+            ]
+
+            # ビデオフィルタを追加
+            if vf_filters:
+                cmd.extend(["-vf", ",".join(vf_filters)])
+
+            # 出力fpsを設定
+            cmd.extend(["-r", str(output_params.fps)])
+
+            cmd.extend([
+                "-c:v", "prores_ks",
+                "-profile:v", "4444",  # ProRes 4444
+                "-pix_fmt", "yuva444p10le",  # アルファチャンネル付き
+                "-q:v", "10",  # 品質（0-32、低いほど高品質）
+                "-c:a", "aac",  # 音声コーデック
+                "-b:a", "192k",  # 音声ビットレート
                 "-map", "0:v:0",  # 映像は最初の入力から
                 "-map", "1:a:0?",  # 音声は2番目の入力から（存在する場合）
                 "-shortest",  # 短い方に合わせる
                 output_path,
-            ]
+            ])
         else:
             # 音声なしで出力
             cmd = [
                 self.ffmpeg_path,
                 "-y",  # 上書き確認なし
-                "-framerate", str(fps),
+                "-framerate", str(output_params.original_fps),  # 入力のfps
                 "-i", input_pattern,
-                "-c:v", "libvpx-vp9",
-                "-pix_fmt", "yuva420p",  # アルファチャンネル付き
-                "-b:v", "2M",  # ビットレート
-                "-crf", "30",  # 品質設定（低いほど高品質）
-                "-deadline", "good",  # バランス重視
-                "-cpu-used", "4",  # エンコード速度
-                "-row-mt", "1",  # マルチスレッド有効
-                output_path,
             ]
+
+            # ビデオフィルタを追加
+            if vf_filters:
+                cmd.extend(["-vf", ",".join(vf_filters)])
+
+            # 出力fpsを設定
+            cmd.extend(["-r", str(output_params.fps)])
+
+            cmd.extend([
+                "-c:v", "prores_ks",
+                "-profile:v", "4444",  # ProRes 4444
+                "-pix_fmt", "yuva444p10le",  # アルファチャンネル付き
+                "-q:v", "10",  # 品質（0-32、低いほど高品質）
+                output_path,
+            ])
 
         result = subprocess.run(
             cmd,
