@@ -332,7 +332,7 @@ class E2ETestRunner:
     def find_process_button(self):
         """処理開始ボタンを複数の方法で検索"""
         # 方法1: ボタンテキストで検索
-        button_texts = ["処理開始", "開始", "Start", "Process", "実行"]
+        button_texts = ["背景を除去", "除去する", "処理開始", "開始", "Start", "Process", "実行"]
         for text in button_texts:
             btn = self.find_button_by_text(text)
             if btn:
@@ -385,7 +385,7 @@ class E2ETestRunner:
                     time.sleep(2)
             else:
                 # 方法2: 座標ベースでクリック（フォールバック）
-                # ウィンドウの下部にあるボタンエリアを複数回クリック
+                # ウィンドウの下部にあるボタンエリアをクリック
                 self.log("Button not found, trying coordinate-based clicks")
 
                 # フォーカスを確実に
@@ -393,11 +393,10 @@ class E2ETestRunner:
 
                 # ウィンドウ下部の複数の位置をクリック（safe_clickで安全に）
                 button_positions = [
-                    (rect.width() // 2, rect.height() - 80, "center-bottom-80"),
-                    (rect.width() // 2, rect.height() - 100, "center-bottom-100"),
-                    (rect.width() // 2, rect.height() - 60, "center-bottom-60"),
-                    (rect.width() // 2 + 50, rect.height() - 80, "right-80"),
-                    (rect.width() // 2 - 50, rect.height() - 80, "left-80"),
+                    (rect.width() // 2, rect.height() - 50, "center-bottom-50"),
+                    (rect.width() // 2, rect.height() - 70, "center-bottom-70"),
+                    (rect.width() // 2, rect.height() - 90, "center-bottom-90"),
+                    (rect.width() // 2, rect.height() - 40, "center-bottom-40"),
                 ]
 
                 for rel_x, rel_y, desc in button_positions:
@@ -417,12 +416,32 @@ class E2ETestRunner:
             while time.time() - start_time < max_wait:
                 elapsed = int(time.time() - start_time)
 
-                # 30秒ごとにスクリーンショット
+                # 30秒ごとにスクリーンショットとウィンドウフォーカス確認
                 if elapsed - last_screenshot_time >= 30:
+                    # ウィンドウをフォアグラウンドに維持
+                    try:
+                        self.main_window.set_focus()
+                    except Exception:
+                        pass
+                    send_keys("{ESC}")  # スタートメニューなどを閉じる
+                    time.sleep(0.3)
                     self.take_screenshot(f"05_processing_{elapsed}s")
                     last_screenshot_time = elapsed
 
-                # 完了ダイアログのチェック
+                # 完了ダイアログのチェック（メインウィンドウ内のダイアログも含む）
+                try:
+                    # メインウィンドウ内のテキストをチェック
+                    texts = self.main_window.descendants(control_type="Text")
+                    for txt in texts:
+                        txt_content = txt.window_text()
+                        if "完了" in txt_content or "ダウンロード" in txt_content:
+                            self.take_screenshot("06_completed_in_window")
+                            self.record_result("Step3_Process", True, f"Processing completed in {elapsed}s")
+                            return True
+                except Exception:
+                    pass
+
+                # 外部ダイアログのチェック
                 try:
                     dialogs = Desktop(backend="uia").windows()
                     for dlg in dialogs:
