@@ -28,6 +28,12 @@ jobs:
   build-windows-gpu:
     runs-on: windows-latest
     steps:
+      - name: Generate timestamp
+        id: timestamp
+        run: |
+          $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmm")
+          echo "value=v$timestamp" >> $env:GITHUB_OUTPUT
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -111,7 +117,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BackgroundRemover_Windows_GPU
+          name: BackgroundRemover_Windows_GPU_${{ steps.timestamp.outputs.value }}
           path: BackgroundRemover_Windows_GPU.zip
           retention-days: 90
 
@@ -121,6 +127,12 @@ jobs:
   build-windows-cpu:
     runs-on: windows-latest
     steps:
+      - name: Generate timestamp
+        id: timestamp
+        run: |
+          $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmm")
+          echo "value=v$timestamp" >> $env:GITHUB_OUTPUT
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -204,7 +216,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BackgroundRemover_Windows_CPU
+          name: BackgroundRemover_Windows_CPU_${{ steps.timestamp.outputs.value }}
           path: BackgroundRemover_Windows_CPU.zip
           retention-days: 90
 
@@ -214,6 +226,12 @@ jobs:
   build-macos:
     runs-on: macos-14  # Apple Silicon (M1) ランナー
     steps:
+      - name: Generate timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP=$(date -u +"%Y%m%d-%H%M")
+          echo "value=v${TIMESTAMP}" >> $GITHUB_OUTPUT
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -331,7 +349,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BackgroundRemover_macOS
+          name: BackgroundRemover_macOS_${{ steps.timestamp.outputs.value }}
           path: BackgroundRemover_macOS.zip
           retention-days: 90
 
@@ -366,15 +384,20 @@ jobs:
         with:
           path: artifacts
 
+      - name: List artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f -name "*.zip"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
           files: |
-            artifacts/BackgroundRemover_Windows_GPU/BackgroundRemover_Windows_GPU.zip
-            artifacts/BackgroundRemover_Windows_CPU/BackgroundRemover_Windows_CPU.zip
-            artifacts/BackgroundRemover_macOS/BackgroundRemover_macOS.zip
+            artifacts/BackgroundRemover_Windows_GPU_*/BackgroundRemover_Windows_GPU.zip
+            artifacts/BackgroundRemover_Windows_CPU_*/BackgroundRemover_Windows_CPU.zip
+            artifacts/BackgroundRemover_macOS_*/BackgroundRemover_macOS.zip
           generate_release_notes: true
           draft: false
           prerelease: false
