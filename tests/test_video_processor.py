@@ -12,11 +12,16 @@ import torch
 from PIL import Image
 
 from src.video_processor import (
+    AUDIO_BITRATE_KBPS,
+    MAX_FILE_SIZE_MB,
+    SAFETY_MARGIN,
     OutputParams,
     ProcessingCancelled,
     VideoInfo,
     VideoProcessor,
     _check_audio_stream,
+    calculate_optimal_params,
+    estimate_prores_size_mb,
     find_ffmpeg,
     get_video_info,
 )
@@ -730,3 +735,310 @@ class TestVideoProcessorWithMock:
         assert len(progress_values) == 2
         assert progress_values[0] == (1, 2)
         assert progress_values[1] == (2, 2)
+
+
+class TestCalculateOptimalParams:
+    """calculate_optimal_params関数のテスト
+
+    動画サイズに合わせて動的に段階的に容量が削減されることを確認する。
+    """
+
+    # 目標サイズ（安全マージン込み）
+    TARGET_SIZE_MB = MAX_FILE_SIZE_MB * SAFETY_MARGIN
+
+    def test_short_video_no_adjustment(self):
+        """短い動画は調整不要であること"""
+        # 1920x1080, 30fps, 60秒 → 推定約356MB（目標921.6MB以下）
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=30.0,
+            duration_sec=60.0,
+        )
+
+        # 調整なし
+        assert params.is_adjusted is False
+        assert params.width == 1920
+        assert params.height == 1080
+        assert params.fps == 30.0
+
+        # 推定サイズが目標以下であること
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 60.0)
+        assert estimated <= self.TARGET_SIZE_MB
+
+    def test_medium_video_fps_reduction_only(self):
+        """中程度の動画はfps削減のみで対応すること"""
+        # 1920x1080, 60fps, 120秒 → 推定約1424MB → fps削減で対応
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=60.0,
+            duration_sec=120.0,
+        )
+
+        # fpsのみ調整、解像度は維持
+        assert params.is_adjusted is True
+        assert params.width == 1920
+        assert params.height == 1080
+        assert params.fps < 60.0  # fpsが削減されている
+        assert params.fps >= 24.0  # 下限24fps
+
+        # 推定サイズが目標以下であること
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 120.0)
+        assert estimated <= self.TARGET_SIZE_MB
+
+    def test_long_video_fps_and_resolution_reduction(self):
+        """長い動画はfps削減＋解像度削減で対応すること"""
+        # 1920x1080, 30fps, 469.83秒 → 推定約2787MB → fps＋解像度削減
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=30.0,
+            duration_sec=469.83,
+        )
+
+        # 調整あり
+        assert params.is_adjusted is True
+
+        # 解像度が削減されていること
+        assert params.width < 1920 or params.height < 1080
+
+        # fpsは24fps以上（下限）
+        assert params.fps >= 24.0
+
+        # 推定サイズが目標以下であること
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 469.83)
+        assert estimated <= self.TARGET_SIZE_MB
+
+    def test_4k_video_adjustment(self):
+        """4K動画でも1GB以下に収まること"""
+        # 3840x2160, 30fps, 120秒 → 推定約2848MB
+        params = calculate_optimal_params(
+            width=3840,
+            height=2160,
+            fps=30.0,
+            duration_sec=120.0,
+        )
+
+        # 調整あり
+        assert params.is_adjusted is True
+
+        # 推定サイズが目標以下であること
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 120.0)
+        assert estimated <= self.TARGET_SIZE_MB
+        assert estimated <= MAX_FILE_SIZE_MB  # 絶対に1GB以下
+
+    def test_fps_reduction_order(self):
+        """fps削減は60→30→24の順で行われること"""
+        # 60fpsの動画でfps削減が必要なケース
+        # 1920x1080, 60fps, 100秒 → 推定約1187MB
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=60.0,
+            duration_sec=100.0,
+        )
+
+        # 30fpsに削減されているはず（60→30で約593MB）
+        assert params.fps == 30.0
+        assert params.width == 1920  # 解像度は維持
+
+    def test_fps_minimum_is_24(self):
+        """fpsの下限は24fpsであること"""
+        # 非常に長い動画でもfpsは24fps未満にならない
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=60.0,
+            duration_sec=1000.0,  # 非常に長い
+        )
+
+        # fpsは24fps以上
+        assert params.fps >= 24.0
+
+    def test_resolution_is_even_number(self):
+        """出力解像度は偶数であること（ffmpegの要件）"""
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=30.0,
+            duration_sec=500.0,
+        )
+
+        # 幅・高さが偶数であること
+        assert params.width % 2 == 0
+        assert params.height % 2 == 0
+
+    def test_original_values_preserved(self):
+        """元の値が保持されること"""
+        params = calculate_optimal_params(
+            width=1920,
+            height=1080,
+            fps=60.0,
+            duration_sec=300.0,
+        )
+
+        # 元の値が保持されている
+        assert params.original_width == 1920
+        assert params.original_height == 1080
+        assert params.original_fps == 60.0
+
+    def test_always_under_1gb(self):
+        """様々なケースで必ず1GB以下になること"""
+        test_cases = [
+            (1920, 1080, 30.0, 60.0),  # 短い
+            (1920, 1080, 30.0, 300.0),  # 中程度
+            (1920, 1080, 30.0, 600.0),  # 長い
+            (1920, 1080, 60.0, 300.0),  # 高fps
+            (3840, 2160, 30.0, 120.0),  # 4K
+            (3840, 2160, 60.0, 180.0),  # 4K高fps
+            (1280, 720, 30.0, 1800.0),  # HD長時間
+        ]
+
+        for width, height, fps, duration in test_cases:
+            params = calculate_optimal_params(width, height, fps, duration)
+            estimated = estimate_prores_size_mb(params.width, params.height, params.fps, duration)
+
+            # 目標サイズ以下であること
+            assert estimated <= self.TARGET_SIZE_MB, (
+                f"Failed for {width}x{height}@{fps}fps, {duration}s: "
+                f"estimated={estimated:.1f}MB > target={self.TARGET_SIZE_MB:.1f}MB"
+            )
+
+            # 絶対に1GB以下であること
+            assert estimated <= MAX_FILE_SIZE_MB, (
+                f"Exceeded 1GB for {width}x{height}@{fps}fps, {duration}s: "
+                f"estimated={estimated:.1f}MB"
+            )
+
+
+class TestEstimateProresSize:
+    """estimate_prores_size_mb関数のテスト"""
+
+    def test_estimate_basic_with_audio(self):
+        """音声込みの推定計算が正しいこと"""
+        # 1920x1080, 30fps, 60秒
+        size = estimate_prores_size_mb(1920, 1080, 30.0, 60.0)
+
+        # 映像: 1920 * 1080 * 0.8 * 30 * 60 / 8 / 1024 / 1024 ≈ 356MB
+        # 音声: 192 * 1000 * 60 / 8 / 1024 / 1024 ≈ 1.37MB
+        # 合計: 約357.4MB
+        assert 355 < size < 365
+
+    def test_estimate_without_audio(self):
+        """音声なしの推定計算が正しいこと"""
+        size = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+
+        # 映像のみ: 1920 * 1080 * 0.8 * 30 * 60 / 8 / 1024 / 1024 ≈ 356MB
+        assert 350 < size < 360
+
+    def test_audio_size_calculation(self):
+        """音声サイズが正しく計算されること"""
+        size_with_audio = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=True)
+        size_without_audio = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+
+        audio_size = size_with_audio - size_without_audio
+        # 192kbps * 60秒 = 192 * 1000 * 60 / 8 / 1024 / 1024 ≈ 1.37MB
+        expected_audio_size = (AUDIO_BITRATE_KBPS * 1000 * 60.0) / 8 / 1024 / 1024
+        assert abs(audio_size - expected_audio_size) < 0.01
+
+    def test_estimate_proportional_to_resolution_video_only(self):
+        """映像サイズは解像度に比例すること（音声なしで確認）"""
+        size_1080p = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+        size_720p = estimate_prores_size_mb(1280, 720, 30.0, 60.0, include_audio=False)
+
+        # 720pは1080pの約44%のピクセル数
+        ratio = (1280 * 720) / (1920 * 1080)
+        assert abs(size_720p / size_1080p - ratio) < 0.01
+
+    def test_estimate_proportional_to_fps_video_only(self):
+        """映像サイズはfpsに比例すること（音声なしで確認）"""
+        size_30fps = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+        size_60fps = estimate_prores_size_mb(1920, 1080, 60.0, 60.0, include_audio=False)
+
+        # 60fpsは30fpsの2倍
+        assert abs(size_60fps / size_30fps - 2.0) < 0.01
+
+    def test_estimate_proportional_to_duration(self):
+        """推定サイズは長さに比例すること（映像＋音声）"""
+        size_60s = estimate_prores_size_mb(1920, 1080, 30.0, 60.0)
+        size_120s = estimate_prores_size_mb(1920, 1080, 30.0, 120.0)
+
+        # 120秒は60秒の2倍
+        assert abs(size_120s / size_60s - 2.0) < 0.01
+
+    def test_long_video_audio_contribution(self):
+        """長い動画では音声の寄与が大きくなること"""
+        # 469.83秒の動画
+        duration = 469.83
+        size_with_audio = estimate_prores_size_mb(1920, 1080, 30.0, duration)
+        size_without_audio = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration, include_audio=False
+        )
+
+        audio_size = size_with_audio - size_without_audio
+        # 192kbps * 469.83秒 ≈ 10.7MB
+        expected_audio_size = (AUDIO_BITRATE_KBPS * 1000 * duration) / 8 / 1024 / 1024
+        assert abs(audio_size - expected_audio_size) < 0.1
+        assert audio_size > 10  # 10MB以上
+
+    def test_audio_size_proportional_to_duration(self):
+        """音声サイズは動画の尺に比例すること"""
+        # 異なる長さの動画で音声サイズを計算
+        duration_60s = 60.0
+        duration_120s = 120.0
+        duration_300s = 300.0
+
+        # 各長さでの音声サイズを計算（映像部分を引いて音声のみを取得）
+        audio_60s = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration_60s, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration_60s, include_audio=False)
+
+        audio_120s = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration_120s, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration_120s, include_audio=False)
+
+        audio_300s = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration_300s, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration_300s, include_audio=False)
+
+        # 120秒は60秒の2倍
+        assert abs(audio_120s / audio_60s - 2.0) < 0.01
+
+        # 300秒は60秒の5倍
+        assert abs(audio_300s / audio_60s - 5.0) < 0.01
+
+        # 期待される音声サイズと一致することを確認
+        expected_audio_60s = (AUDIO_BITRATE_KBPS * 1000 * duration_60s) / 8 / 1024 / 1024
+        expected_audio_120s = (AUDIO_BITRATE_KBPS * 1000 * duration_120s) / 8 / 1024 / 1024
+        expected_audio_300s = (AUDIO_BITRATE_KBPS * 1000 * duration_300s) / 8 / 1024 / 1024
+
+        assert abs(audio_60s - expected_audio_60s) < 0.01
+        assert abs(audio_120s - expected_audio_120s) < 0.01
+        assert abs(audio_300s - expected_audio_300s) < 0.01
+
+    def test_audio_size_independent_of_resolution_and_fps(self):
+        """音声サイズは解像度やfpsに依存しないこと"""
+        duration = 60.0
+
+        # 異なる解像度・fpsで音声サイズを計算
+        audio_1080p_30fps = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration, include_audio=False)
+
+        audio_720p_30fps = estimate_prores_size_mb(
+            1280, 720, 30.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(1280, 720, 30.0, duration, include_audio=False)
+
+        audio_1080p_60fps = estimate_prores_size_mb(
+            1920, 1080, 60.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 60.0, duration, include_audio=False)
+
+        audio_4k_24fps = estimate_prores_size_mb(
+            3840, 2160, 24.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(3840, 2160, 24.0, duration, include_audio=False)
+
+        # すべて同じ音声サイズになるはず
+        assert abs(audio_1080p_30fps - audio_720p_30fps) < 0.001
+        assert abs(audio_1080p_30fps - audio_1080p_60fps) < 0.001
+        assert abs(audio_1080p_30fps - audio_4k_24fps) < 0.001

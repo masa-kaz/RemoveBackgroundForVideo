@@ -1,5 +1,6 @@
 """動画処理ロジック"""
 
+import math
 import subprocess
 import sys
 import tempfile
@@ -25,7 +26,10 @@ class ProcessingCancelled(Exception):
 
 
 # ファイルサイズ上限 (MB)
-MAX_FILE_SIZE_MB = 1023
+MAX_FILE_SIZE_MB = 1024  # 1GB
+
+# 安全マージン（推定誤差を考慮して10%の余裕を持たせる）
+SAFETY_MARGIN = 0.90
 
 
 def _get_subprocess_args() -> dict:
@@ -68,23 +72,37 @@ class OutputParams:
         return self.fps != self.original_fps
 
 
-def estimate_prores_size_mb(width: int, height: int, fps: float, duration_sec: float) -> float:
-    """ProRes 4444の推定ファイルサイズを計算する
+# 音声ビットレート (kbps) - ffmpegで192kに設定
+AUDIO_BITRATE_KBPS = 192
+
+
+def estimate_prores_size_mb(
+    width: int, height: int, fps: float, duration_sec: float, include_audio: bool = True
+) -> float:
+    """ProRes 4444の推定ファイルサイズを計算する（音声含む）
 
     Args:
         width: 幅
         height: 高さ
         fps: フレームレート
         duration_sec: 動画の長さ（秒）
+        include_audio: 音声サイズを含めるかどうか（デフォルトTrue）
 
     Returns:
         float: 推定ファイルサイズ (MB)
     """
     # ProRes 4444: 約0.8 bits/pixel/frame が経験則的な目安
     bits_per_frame = width * height * 0.8
-    total_bits = bits_per_frame * fps * duration_sec
-    size_mb = total_bits / 8 / 1024 / 1024
-    return size_mb
+    video_bits = bits_per_frame * fps * duration_sec
+    video_size_mb = video_bits / 8 / 1024 / 1024
+
+    # 音声サイズを追加（192kbps AAC）
+    if include_audio:
+        audio_size_mb = (AUDIO_BITRATE_KBPS * 1000 * duration_sec) / 8 / 1024 / 1024
+    else:
+        audio_size_mb = 0
+
+    return video_size_mb + audio_size_mb
 
 
 def calculate_optimal_params(
@@ -94,7 +112,10 @@ def calculate_optimal_params(
     duration_sec: float,
     max_size_mb: float = MAX_FILE_SIZE_MB,
 ) -> OutputParams:
-    """1023MB以下に収まる最適なパラメータを計算する
+    """1GB以下に収まる最適なパラメータを動的に計算する
+
+    安全マージン（10%）を考慮し、推定サイズが確実に1GB未満になるよう調整する。
+    fps削減 → 解像度削減の順で最小限の調整を行う。
 
     Args:
         width: 元の幅
@@ -106,6 +127,9 @@ def calculate_optimal_params(
     Returns:
         OutputParams: 最適化されたパラメータ
     """
+    # 目標サイズ（安全マージン込み）
+    target_size_mb = max_size_mb * SAFETY_MARGIN
+
     current_width = width
     current_height = height
     current_fps = fps
@@ -115,7 +139,7 @@ def calculate_optimal_params(
         current_width, current_height, current_fps, duration_sec
     )
 
-    if estimated_size <= max_size_mb:
+    if estimated_size <= target_size_mb:
         return OutputParams(
             width=current_width,
             height=current_height,
@@ -126,51 +150,58 @@ def calculate_optimal_params(
             is_adjusted=False,
         )
 
-    # Step 2: fps削減（60fps以上なら30fpsに）
-    if current_fps > 30:
-        current_fps = 30.0
-        estimated_size = estimate_prores_size_mb(
-            current_width, current_height, current_fps, duration_sec
-        )
-        if estimated_size <= max_size_mb:
-            return OutputParams(
-                width=current_width,
-                height=current_height,
-                fps=current_fps,
-                original_width=width,
-                original_height=height,
-                original_fps=fps,
-                is_adjusted=True,
+    # Step 2: fps削減（段階的に、下限24fps）
+    fps_candidates = [30.0, 24.0]
+    for target_fps in fps_candidates:
+        if current_fps > target_fps:
+            current_fps = target_fps
+            estimated_size = estimate_prores_size_mb(
+                current_width, current_height, current_fps, duration_sec
             )
+            if estimated_size <= target_size_mb:
+                return OutputParams(
+                    width=current_width,
+                    height=current_height,
+                    fps=current_fps,
+                    original_width=width,
+                    original_height=height,
+                    original_fps=fps,
+                    is_adjusted=True,
+                )
 
-    # Step 3: 解像度ダウンスケール（段階的）
-    scale_factors = [0.75, 0.5, 0.375, 0.25]
+    # Step 3: 解像度を動的に計算
+    # 必要なスケール係数を計算: scale² = target_size / estimated_size
+    scale = math.sqrt(target_size_mb / estimated_size)
 
-    for scale in scale_factors:
-        # 偶数に丸める（ffmpegの要件）
-        new_width = round(width * scale / 2) * 2
-        new_height = round(height * scale / 2) * 2
+    # スケールが1以上なら調整不要（理論上ここには来ないが念のため）
+    if scale >= 1.0:
+        scale = 1.0
 
+    # 最小スケールを設定（解像度が小さくなりすぎないように）
+    min_scale = 0.1
+    if scale < min_scale:
+        scale = min_scale
+
+    # 新しい解像度を計算（偶数に丸める、ffmpegの要件）
+    new_width = max(round(width * scale / 2) * 2, 2)
+    new_height = max(round(height * scale / 2) * 2, 2)
+
+    # Step 4: 最終確認ループ（確実に目標以下になるまで）
+    max_iterations = 10
+    for _ in range(max_iterations):
         estimated_size = estimate_prores_size_mb(new_width, new_height, current_fps, duration_sec)
 
-        if estimated_size <= max_size_mb:
-            return OutputParams(
-                width=new_width,
-                height=new_height,
-                fps=current_fps,
-                original_width=width,
-                original_height=height,
-                original_fps=fps,
-                is_adjusted=True,
-            )
+        if estimated_size <= target_size_mb:
+            break
 
-    # それでも収まらない場合は最小設定で返す
-    final_width = round(width * 0.25 / 2) * 2
-    final_height = round(height * 0.25 / 2) * 2
+        # まだオーバーしている場合、スケールをさらに5%下げる
+        scale *= 0.95
+        new_width = max(round(width * scale / 2) * 2, 2)
+        new_height = max(round(height * scale / 2) * 2, 2)
 
     return OutputParams(
-        width=final_width,
-        height=final_height,
+        width=new_width,
+        height=new_height,
         fps=current_fps,
         original_width=width,
         original_height=height,
