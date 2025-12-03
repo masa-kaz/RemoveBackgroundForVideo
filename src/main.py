@@ -39,6 +39,7 @@ from video_processor import (
     OutputParams,
     ProcessingCancelled,
     VideoProcessor,
+    _get_subprocess_args,
     calculate_optimal_params,
     get_video_info,
 )
@@ -823,6 +824,7 @@ class BackgroundRemoverApp:
                 cmd,
                 capture_output=True,
                 text=True,
+                **_get_subprocess_args(),
             )
 
             if result.returncode != 0 or not Path(temp_png).exists():

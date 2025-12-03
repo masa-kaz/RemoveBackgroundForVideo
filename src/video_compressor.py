@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from video_processor import find_ffmpeg, get_video_info
+from video_processor import _get_subprocess_args, find_ffmpeg, get_video_info
 
 
 # ファイルサイズ設定
@@ -130,6 +130,7 @@ def verify_video_integrity(file_path: str) -> bool:
             capture_output=True,
             text=True,
             timeout=FFPROBE_TIMEOUT_SECONDS,
+            **_get_subprocess_args(),
         )
         # 正常に終了し、durationが取得できれば整合性OK
         return result.returncode == 0 and len(result.stdout.strip()) > 0
@@ -288,6 +289,7 @@ def compress_video(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True,
+            **_get_subprocess_args(),
         )
 
         # 完了を待つ
