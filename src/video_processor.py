@@ -72,23 +72,37 @@ class OutputParams:
         return self.fps != self.original_fps
 
 
-def estimate_prores_size_mb(width: int, height: int, fps: float, duration_sec: float) -> float:
-    """ProRes 4444の推定ファイルサイズを計算する
+# 音声ビットレート (kbps) - ffmpegで192kに設定
+AUDIO_BITRATE_KBPS = 192
+
+
+def estimate_prores_size_mb(
+    width: int, height: int, fps: float, duration_sec: float, include_audio: bool = True
+) -> float:
+    """ProRes 4444の推定ファイルサイズを計算する（音声含む）
 
     Args:
         width: 幅
         height: 高さ
         fps: フレームレート
         duration_sec: 動画の長さ（秒）
+        include_audio: 音声サイズを含めるかどうか（デフォルトTrue）
 
     Returns:
         float: 推定ファイルサイズ (MB)
     """
     # ProRes 4444: 約0.8 bits/pixel/frame が経験則的な目安
     bits_per_frame = width * height * 0.8
-    total_bits = bits_per_frame * fps * duration_sec
-    size_mb = total_bits / 8 / 1024 / 1024
-    return size_mb
+    video_bits = bits_per_frame * fps * duration_sec
+    video_size_mb = video_bits / 8 / 1024 / 1024
+
+    # 音声サイズを追加（192kbps AAC）
+    if include_audio:
+        audio_size_mb = (AUDIO_BITRATE_KBPS * 1000 * duration_sec) / 8 / 1024 / 1024
+    else:
+        audio_size_mb = 0
+
+    return video_size_mb + audio_size_mb
 
 
 def calculate_optimal_params(

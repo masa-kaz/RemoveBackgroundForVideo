@@ -12,6 +12,7 @@ import torch
 from PIL import Image
 
 from src.video_processor import (
+    AUDIO_BITRATE_KBPS,
     MAX_FILE_SIZE_MB,
     SAFETY_MARGIN,
     OutputParams,
@@ -914,35 +915,69 @@ class TestCalculateOptimalParams:
 class TestEstimateProresSize:
     """estimate_prores_size_mb関数のテスト"""
 
-    def test_estimate_basic(self):
-        """基本的な推定計算が正しいこと"""
+    def test_estimate_basic_with_audio(self):
+        """音声込みの推定計算が正しいこと"""
         # 1920x1080, 30fps, 60秒
         size = estimate_prores_size_mb(1920, 1080, 30.0, 60.0)
 
-        # 計算: 1920 * 1080 * 0.8 * 30 * 60 / 8 / 1024 / 1024 ≈ 356MB
+        # 映像: 1920 * 1080 * 0.8 * 30 * 60 / 8 / 1024 / 1024 ≈ 356MB
+        # 音声: 192 * 1000 * 60 / 8 / 1024 / 1024 ≈ 1.37MB
+        # 合計: 約357.4MB
+        assert 355 < size < 365
+
+    def test_estimate_without_audio(self):
+        """音声なしの推定計算が正しいこと"""
+        size = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+
+        # 映像のみ: 1920 * 1080 * 0.8 * 30 * 60 / 8 / 1024 / 1024 ≈ 356MB
         assert 350 < size < 360
 
-    def test_estimate_proportional_to_resolution(self):
-        """推定サイズは解像度に比例すること"""
-        size_1080p = estimate_prores_size_mb(1920, 1080, 30.0, 60.0)
-        size_720p = estimate_prores_size_mb(1280, 720, 30.0, 60.0)
+    def test_audio_size_calculation(self):
+        """音声サイズが正しく計算されること"""
+        size_with_audio = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=True)
+        size_without_audio = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+
+        audio_size = size_with_audio - size_without_audio
+        # 192kbps * 60秒 = 192 * 1000 * 60 / 8 / 1024 / 1024 ≈ 1.37MB
+        expected_audio_size = (AUDIO_BITRATE_KBPS * 1000 * 60.0) / 8 / 1024 / 1024
+        assert abs(audio_size - expected_audio_size) < 0.01
+
+    def test_estimate_proportional_to_resolution_video_only(self):
+        """映像サイズは解像度に比例すること（音声なしで確認）"""
+        size_1080p = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+        size_720p = estimate_prores_size_mb(1280, 720, 30.0, 60.0, include_audio=False)
 
         # 720pは1080pの約44%のピクセル数
         ratio = (1280 * 720) / (1920 * 1080)
         assert abs(size_720p / size_1080p - ratio) < 0.01
 
-    def test_estimate_proportional_to_fps(self):
-        """推定サイズはfpsに比例すること"""
-        size_30fps = estimate_prores_size_mb(1920, 1080, 30.0, 60.0)
-        size_60fps = estimate_prores_size_mb(1920, 1080, 60.0, 60.0)
+    def test_estimate_proportional_to_fps_video_only(self):
+        """映像サイズはfpsに比例すること（音声なしで確認）"""
+        size_30fps = estimate_prores_size_mb(1920, 1080, 30.0, 60.0, include_audio=False)
+        size_60fps = estimate_prores_size_mb(1920, 1080, 60.0, 60.0, include_audio=False)
 
         # 60fpsは30fpsの2倍
         assert abs(size_60fps / size_30fps - 2.0) < 0.01
 
     def test_estimate_proportional_to_duration(self):
-        """推定サイズは長さに比例すること"""
+        """推定サイズは長さに比例すること（映像＋音声）"""
         size_60s = estimate_prores_size_mb(1920, 1080, 30.0, 60.0)
         size_120s = estimate_prores_size_mb(1920, 1080, 30.0, 120.0)
 
         # 120秒は60秒の2倍
         assert abs(size_120s / size_60s - 2.0) < 0.01
+
+    def test_long_video_audio_contribution(self):
+        """長い動画では音声の寄与が大きくなること"""
+        # 469.83秒の動画
+        duration = 469.83
+        size_with_audio = estimate_prores_size_mb(1920, 1080, 30.0, duration)
+        size_without_audio = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration, include_audio=False
+        )
+
+        audio_size = size_with_audio - size_without_audio
+        # 192kbps * 469.83秒 ≈ 10.7MB
+        expected_audio_size = (AUDIO_BITRATE_KBPS * 1000 * duration) / 8 / 1024 / 1024
+        assert abs(audio_size - expected_audio_size) < 0.1
+        assert audio_size > 10  # 10MB以上
