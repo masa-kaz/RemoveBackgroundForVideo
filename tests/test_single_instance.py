@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """多重起動防止機能（SingleInstanceLock）のテスト"""
 
 import os
+import subprocess
 import sys
 import tempfile
-import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
+
 
 # srcディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -152,7 +151,7 @@ class TestSingleInstanceLockIntegration:
         """実際のロックファイルパスが正しいこと"""
         lock = SingleInstanceLock()
         expected = Path(tempfile.gettempdir()) / "background_remover_video.lock"
-        assert lock.LOCK_FILE == expected
+        assert expected == lock.LOCK_FILE
 
     def test_acquire_and_release_cycle(self):
         """取得・解放のサイクルが正常に動作すること"""
@@ -207,13 +206,12 @@ if lock_file.exists():
 
         # バックグラウンドでロックを保持するプロセスを起動
         proc = subprocess.Popen(
-            [sys.executable, str(script), "2"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            [sys.executable, str(script), "2"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
         # ロックファイルが作成されるまで待機
         import time
+
         for _ in range(20):  # 最大2秒待機
             if lock_file.exists():
                 break

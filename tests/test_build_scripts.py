@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """ビルドスクリプトの検証テスト
 
 ビルドスクリプトが正しい設定になっているかを検証する。
 """
 
-import re
 from pathlib import Path
 
 import pytest
@@ -56,8 +54,7 @@ class TestBuildMacSh:
         """ダウンロードURLがrvm_model.pyと一致すること"""
         expected_url = MODEL_URLS["mobilenetv3"]
         assert expected_url in script_content, (
-            f"build_mac.shのダウンロードURLがrvm_model.pyと一致しません\n"
-            f"期待: {expected_url}"
+            f"build_mac.shのダウンロードURLがrvm_model.pyと一致しません\n期待: {expected_url}"
         )
 
     def test_includes_models_in_bundle(self, script_content):
@@ -91,8 +88,7 @@ class TestBuildGpuBat:
         """ダウンロードURLがrvm_model.pyと一致すること"""
         expected_url = MODEL_URLS["mobilenetv3"]
         assert expected_url in script_content, (
-            f"build_gpu.batのダウンロードURLがrvm_model.pyと一致しません\n"
-            f"期待: {expected_url}"
+            f"build_gpu.batのダウンロードURLがrvm_model.pyと一致しません\n期待: {expected_url}"
         )
 
     def test_includes_models_in_bundle(self, script_content):
@@ -138,8 +134,7 @@ class TestBuildCpuBat:
         """ダウンロードURLがrvm_model.pyと一致すること"""
         expected_url = MODEL_URLS["mobilenetv3"]
         assert expected_url in script_content, (
-            f"build_cpu.batのダウンロードURLがrvm_model.pyと一致しません\n"
-            f"期待: {expected_url}"
+            f"build_cpu.batのダウンロードURLがrvm_model.pyと一致しません\n期待: {expected_url}"
         )
 
     def test_includes_models_in_bundle(self, script_content):

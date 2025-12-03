@@ -42,6 +42,8 @@ python -m src.main
 
 `dist/BackgroundRemover_GPU/` または `dist/BackgroundRemover_CPU/` フォルダ内の `BackgroundRemover.exe` を実行してください。
 
+> **注意**: ZIPファイルは `C:\RBV` などドライブ直下の短いパスに解凍してください。長いパスでは解凍に失敗する場合があります。
+
 ### macOS版
 
 `dist/BackgroundRemover_Mac.app` をダブルクリックして実行してください。

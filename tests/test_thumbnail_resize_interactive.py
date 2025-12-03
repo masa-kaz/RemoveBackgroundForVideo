@@ -1,23 +1,23 @@
-# -*- coding: utf-8 -*-
 """サムネイルリサイズの実際の動作を確認するテスト
 
 ウィンドウサイズを変更して、サムネイル画像が実際に変更されているか検証する
 """
 
 import sys
-import time
 from pathlib import Path
+
 
 # srcディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import customtkinter as ctk
 from PIL import Image
-import numpy as np
+
 
 # tkinterdnd2のインポート
 try:
     from tkinterdnd2 import TkinterDnD
+
     HAS_DND = True
 except ImportError:
     HAS_DND = False
@@ -170,11 +170,13 @@ class ThumbnailResizeTest:
         self._update_debug(f"リサイズ #{self.resize_count}: {width}x{height}")
 
         # テスト結果を記録
-        self.test_results.append({
-            "window_width": self.root.winfo_width(),
-            "thumb_size": (width, height),
-            "image_id": id(self.thumbnail_image),
-        })
+        self.test_results.append(
+            {
+                "window_width": self.root.winfo_width(),
+                "thumb_size": (width, height),
+                "image_id": id(self.thumbnail_image),
+            }
+        )
 
     def _update_debug(self, msg: str):
         """デバッグ情報を更新"""
@@ -230,8 +232,7 @@ CTkImage ID: {img_id}
 
         if len(self.test_results) < 2:
             self.result_label.configure(
-                text="ERROR: リサイズイベントが発火していません",
-                text_color="#F44336"
+                text="ERROR: リサイズイベントが発火していません", text_color="#F44336"
             )
             print("ERROR: リサイズイベントが十分に発火していません")
             return
@@ -244,8 +245,10 @@ CTkImage ID: {img_id}
         print(f"ユニークなCTkImage ID数: {len(unique_ids)}")
 
         for i, result in enumerate(self.test_results):
-            print(f"  #{i+1}: Window={result['window_width']}px, "
-                  f"Thumb={result['thumb_size']}, ID={result['image_id']}")
+            print(
+                f"  #{i + 1}: Window={result['window_width']}px, "
+                f"Thumb={result['thumb_size']}, ID={result['image_id']}"
+            )
 
         # サムネイルサイズが変わっているか確認
         thumb_sizes = [r["thumb_size"] for r in self.test_results]
@@ -254,13 +257,12 @@ CTkImage ID: {img_id}
         if len(unique_sizes) > 1:
             self.result_label.configure(
                 text=f"OK: {len(unique_sizes)}種類のサイズにリサイズされました",
-                text_color="#4CAF50"
+                text_color="#4CAF50",
             )
             print(f"\nSUCCESS: {len(unique_sizes)}種類の異なるサイズが確認されました")
         else:
             self.result_label.configure(
-                text="ERROR: サムネイルサイズが変わっていません",
-                text_color="#F44336"
+                text="ERROR: サムネイルサイズが変わっていません", text_color="#F44336"
             )
             print("\nFAILED: サムネイルサイズが変わっていません")
 
@@ -277,7 +279,7 @@ def main():
     else:
         root = ctk.CTk()
 
-    app = ThumbnailResizeTest(root)
+    ThumbnailResizeTest(root)
     root.mainloop()
 
 

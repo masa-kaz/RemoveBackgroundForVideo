@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """相対インポートを検出するテスト
 
 PyInstallerでビルドする際、srcディレクトリ内のファイルが
@@ -7,7 +6,6 @@ PyInstallerでビルドする際、srcディレクトリ内のファイルが
 """
 
 import ast
-import sys
 from pathlib import Path
 
 import pytest
@@ -24,19 +22,18 @@ def find_relative_imports(file_path: Path) -> list[tuple[int, str]]:
     """
     relative_imports = []
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     tree = ast.parse(content, filename=str(file_path))
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.level > 0:
-                module = node.module or ""
-                names = ", ".join(alias.name for alias in node.names)
-                dots = "." * node.level
-                import_stmt = f"from {dots}{module} import {names}"
-                relative_imports.append((node.lineno, import_stmt))
+        if isinstance(node, ast.ImportFrom) and node.level > 0:
+            module = node.module or ""
+            names = ", ".join(alias.name for alias in node.names)
+            dots = "." * node.level
+            import_stmt = f"from {dots}{module} import {names}"
+            relative_imports.append((node.lineno, import_stmt))
 
     return relative_imports
 

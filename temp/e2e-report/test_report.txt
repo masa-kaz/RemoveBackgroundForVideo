@@ -1,0 +1,14 @@
+============================================================
+E2E Test Report
+============================================================
+EXE Path: D:\a\RemoveBackgroundForVideo\RemoveBackgroundForVideo\dist\BackgroundRemover_CPU\BackgroundRemover_CPU.exe
+Test Video: D:\a\RemoveBackgroundForVideo\RemoveBackgroundForVideo\tests\fixtures\TestVideo.mp4
+Output Dir: D:\a\RemoveBackgroundForVideo\RemoveBackgroundForVideo\test_output\e2e
+------------------------------------------------------------
+Results:
+  [PASS] Step1_Launch: Application launched successfully
+  [PASS] Step2_SelectFile: Selected: TestVideo.mp4
+  [FAIL] Step3_Process: Processing timeout after 300s
+------------------------------------------------------------
+Total: 3, Passed: 2, Failed: 1
+============================================================

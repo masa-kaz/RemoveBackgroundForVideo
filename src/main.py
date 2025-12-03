@@ -1,45 +1,46 @@
-# -*- coding: utf-8 -*-
 """動画背景除去ツール - GUI (CustomTkinter版)
 
 UI仕様書: .claude/workspace/task.md
 """
 
 import atexit
+import contextlib
 import os
 import signal
 import subprocess
 import sys
 import tempfile
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
-import cv2
 import customtkinter as ctk
+import cv2
 from PIL import Image, ImageDraw
+
 
 # tkinterdnd2のインポート（ドラッグ＆ドロップ対応）
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
 
-    HAS_DND = True
+    DRAG_AND_DROP_AVAILABLE = True
 except ImportError:
-    HAS_DND = False
+    DRAG_AND_DROP_AVAILABLE = False
 
 from rvm_model import RVMModel, download_model
-from video_processor import (
-    VideoProcessor,
-    get_video_info,
-    ProcessingCancelled,
-    OutputParams,
-    calculate_optimal_params,
-)
 from utils import (
-    get_device_info,
-    is_supported_video,
-    format_time,
     SUPPORTED_INPUT_EXTENSIONS,
     DeviceInfo,
+    format_time,
+    get_device_info,
+    is_supported_video,
+)
+from video_processor import (
+    OutputParams,
+    ProcessingCancelled,
+    VideoProcessor,
+    calculate_optimal_params,
+    get_video_info,
 )
 
 
@@ -104,6 +105,87 @@ SIZES = {
     "logo_size": 48,
 }
 
+# =============================================================================
+# タイミング定数（ミリ秒）
+# =============================================================================
+TIMING_MS = {
+    "thumbnail_update_delay": 50,  # サムネイル更新の遅延
+    "auto_close_dialog": 3000,  # 完了ダイアログの自動クローズ
+    "window_resize_threshold": 10,  # ウィンドウリサイズ検知の閾値(px)
+}
+
+# =============================================================================
+# 進捗テキストのフォントサイズ調整閾値
+# =============================================================================
+PROGRESS_TEXT_THRESHOLDS = {
+    "short_text_max_length": 14,  # 100%サイズで表示する最大文字数
+    "medium_text_max_length": 17,  # 85%サイズで表示する最大文字数
+    "long_text_max_length": 20,  # 70%サイズで表示する最大文字数
+    # それ以上は60%サイズ
+}
+
+# フレーム数表示の短縮形式閾値
+FRAME_COUNT_THRESHOLDS = {
+    "use_k_suffix": 10000,  # この値以上で "12.3k" 形式に短縮
+}
+
+
+def format_frame_count(current: int, total: int) -> str:
+    """フレーム数を適切な形式でフォーマットする
+
+    10000以上の場合は "12.3k / 98.8k f" 形式に短縮
+
+    Args:
+        current: 現在のフレーム数
+        total: 総フレーム数
+
+    Returns:
+        フォーマットされた文字列
+    """
+    threshold = FRAME_COUNT_THRESHOLDS["use_k_suffix"]
+
+    if total >= threshold:
+        # 短縮形式: "12.3k / 98.8k f"
+        current_k = current / 1000
+        total_k = total / 1000
+        return f"{current_k:.1f}k / {total_k:.1f}k f"
+
+    # 通常形式: "1,234 / 5,678 f"
+    return f"{current:,} / {total:,} f"
+
+
+def calculate_frame_font_size(text: str, base_font_size: int = 18) -> int:
+    """フレーム数テキストのフォントサイズを動的に計算する
+
+    Args:
+        text: 表示するテキスト
+        base_font_size: 基本フォントサイズ
+
+    Returns:
+        int: フォントサイズ
+    """
+    text_length = len(text)
+    short_max = PROGRESS_TEXT_THRESHOLDS["short_text_max_length"]
+    medium_max = PROGRESS_TEXT_THRESHOLDS["medium_text_max_length"]
+    long_max = PROGRESS_TEXT_THRESHOLDS["long_text_max_length"]
+
+    if text_length <= short_max:
+        return base_font_size
+    if text_length <= medium_max:
+        return int(base_font_size * 0.85)
+    if text_length <= long_max:
+        return int(base_font_size * 0.70)
+    # long_maxより長い場合は60%サイズ
+    return int(base_font_size * 0.60)
+
+
+# =============================================================================
+# 円形プログレスバー描画定数
+# =============================================================================
+CIRCULAR_PROGRESS_STYLE = {
+    "outline_width": 2,  # アウトラインの太さ
+}
+
 
 # =============================================================================
 # 多重起動防止
@@ -122,6 +204,7 @@ class SingleInstanceLock:
             if sys.platform == "win32":
                 # Windows用: ctypesでプロセス存在確認
                 import ctypes
+
                 kernel32 = ctypes.windll.kernel32
                 SYNCHRONIZE = 0x00100000
                 handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
@@ -149,10 +232,8 @@ class SingleInstanceLock:
                 self.LOCK_FILE.unlink()
             except (ValueError, OSError):
                 # ロックファイルが壊れている場合は削除
-                try:
+                with contextlib.suppress(OSError):
                     self.LOCK_FILE.unlink()
-                except OSError:
-                    pass
 
         # ロックファイルを作成
         try:
@@ -165,10 +246,8 @@ class SingleInstanceLock:
     def release(self):
         """ロックを解放"""
         if self._lock_acquired:
-            try:
+            with contextlib.suppress(OSError):
                 self.LOCK_FILE.unlink()
-            except OSError:
-                pass
             self._lock_acquired = False
 
 
@@ -179,15 +258,16 @@ def _bring_existing_window_to_front():
     try:
         if sys.platform == "darwin":
             # macOS: AppleScriptでウィンドウをアクティブ化
-            script = f'''
+            script = """
             tell application "System Events"
                 set frontmost of every process whose name contains "Python" to true
             end tell
-            '''
+            """
             subprocess.run(["osascript", "-e", script], capture_output=True)
         elif sys.platform == "win32":
             # Windows: ctypesでウィンドウを前面に出す
             import ctypes
+
             user32 = ctypes.windll.user32
 
             # ウィンドウを検索
@@ -214,7 +294,7 @@ class CircularProgress(ctk.CTkFrame):
         line_width: int = 10,
         progress_color: str = COLORS["primary"],
         bg_color: str = COLORS["border"],
-        **kwargs
+        **kwargs,
     ):
         super().__init__(master, fg_color="transparent", **kwargs)
 
@@ -238,19 +318,22 @@ class CircularProgress(ctk.CTkFrame):
 
         self._draw_progress()
 
-    def _draw_text_with_outline(self, x: int, y: int, text: str, font_size: int, bold: bool = False):
+    def _draw_text_with_outline(
+        self, x: int, y: int, text: str, font_size: int, bold: bool = False
+    ):
         """白縁付きの黒文字を描画"""
         font_weight = "bold" if bold else "normal"
         font = (ctk.CTkFont().cget("family"), font_size, font_weight)
 
         # 白い縁取り（8方向にオフセットして描画）
         outline_color = "white"
-        outline_width = 2
+        outline_width = CIRCULAR_PROGRESS_STYLE["outline_width"]
         for dx in [-outline_width, 0, outline_width]:
             for dy in [-outline_width, 0, outline_width]:
                 if dx != 0 or dy != 0:
                     self.canvas.create_text(
-                        x + dx, y + dy,
+                        x + dx,
+                        y + dy,
                         text=text,
                         font=font,
                         fill=outline_color,
@@ -259,7 +342,8 @@ class CircularProgress(ctk.CTkFrame):
 
         # 黒い本文
         self.canvas.create_text(
-            x, y,
+            x,
+            y,
             text=text,
             font=font,
             fill=COLORS["text"],
@@ -303,7 +387,8 @@ class CircularProgress(ctk.CTkFrame):
 
         # パーセンテージテキスト（白縁黒文字）
         self._draw_text_with_outline(
-            center, center - 10,
+            center,
+            center - 10,
             self._percent_text,
             FONT_SIZES["progress_percent"],
             bold=True,
@@ -314,7 +399,8 @@ class CircularProgress(ctk.CTkFrame):
             # 円内に収まるようにフォントサイズを動的に調整
             frame_font_size = self._calculate_frame_font_size(self._frame_text)
             self._draw_text_with_outline(
-                center, center + 25,
+                center,
+                center + 25,
                 self._frame_text,
                 frame_font_size,
                 bold=False,
@@ -330,28 +416,14 @@ class CircularProgress(ctk.CTkFrame):
             int: フォントサイズ
         """
         base_font_size = FONT_SIZES["frame_count"]  # 18
-        # 円の内側で使える幅（線幅とパディングを考慮）
-        available_width = self._size - self._line_width * 4  # 約100px
-
-        # 文字数に応じてフォントサイズを調整
-        # 基準: 12文字程度（例: "1,234 / 5,678 f"）で基本サイズ
-        text_length = len(text)
-
-        if text_length <= 12:
-            return base_font_size
-        elif text_length <= 15:
-            return int(base_font_size * 0.85)  # 15
-        elif text_length <= 18:
-            return int(base_font_size * 0.72)  # 13
-        else:
-            return int(base_font_size * 0.61)  # 11
+        return calculate_frame_font_size(text, base_font_size)
 
     def set(self, value: float, current: int = 0, total: int = 0):
         """進捗を設定 (0.0 ~ 1.0)"""
         self._progress = max(0.0, min(1.0, value))
         self._percent_text = f"{int(self._progress * 100)}%"
         if total > 0:
-            self._frame_text = f"{current:,} / {total:,} f"
+            self._frame_text = format_frame_count(current, total)
         self._draw_progress()
 
     def get(self) -> float:
@@ -601,6 +673,8 @@ class BackgroundRemoverApp:
             # フォールバック: .pngファイルを使用
             png_path = asset_path / "icon.png"
             if png_path.exists():
+                import tkinter as tk
+
                 icon_image = tk.PhotoImage(file=str(png_path))
                 self.root.iconphoto(True, icon_image)
                 # 参照を保持（ガベージコレクション防止）
@@ -679,10 +753,11 @@ class BackgroundRemoverApp:
 
         # 幅が変わった場合のみサムネイルを更新
         new_width = self.root.winfo_width()
-        if abs(new_width - self._last_window_width) > 10:  # 10px以上の変化
+        resize_threshold = TIMING_MS["window_resize_threshold"]
+        if abs(new_width - self._last_window_width) > resize_threshold:
             self._last_window_width = new_width
             # 少し遅延させてリサイズ完了後に更新
-            self.root.after(50, self._update_thumbnail_size)
+            self.root.after(TIMING_MS["thumbnail_update_delay"], self._update_thumbnail_size)
 
     def _update_thumbnail_size(self) -> None:
         """ウィンドウサイズに合わせてサムネイルを更新"""
@@ -705,7 +780,9 @@ class BackgroundRemoverApp:
             img = self._original_processed_pil.resize((width, height), Image.Resampling.LANCZOS)
             checkerboard = self._create_checkerboard(width, height)
             checkerboard.paste(img, (0, 0), img)
-            self.processed_thumbnail_image = ctk.CTkImage(light_image=checkerboard, size=(width, height))
+            self.processed_thumbnail_image = ctk.CTkImage(
+                light_image=checkerboard, size=(width, height)
+            )
             self.thumbnail_label.configure(image=self.processed_thumbnail_image)
             # 強制的に再描画
             self.thumbnail_label.update_idletasks()
@@ -734,8 +811,10 @@ class BackgroundRemoverApp:
             # ffmpegで最初のフレームをPNGとして抽出（アルファチャンネル付き）
             cmd = [
                 ffmpeg_path,
-                "-i", video_path,
-                "-vframes", "1",
+                "-i",
+                video_path,
+                "-vframes",
+                "1",
                 "-y",
                 temp_png,
             ]
@@ -754,10 +833,8 @@ class BackgroundRemoverApp:
             img = Image.open(temp_png).convert("RGBA")
 
             # 一時ファイルを削除
-            try:
+            with contextlib.suppress(Exception):
                 os.remove(temp_png)
-            except Exception:
-                pass
 
             # 元画像を保持（リサイズ用）
             self._original_processed_pil = img.copy()
@@ -838,10 +915,7 @@ class BackgroundRemoverApp:
             for x in range(0, width, cell_size):
                 # 市松模様のパターン
                 if (x // cell_size + y // cell_size) % 2 == 1:
-                    draw.rectangle(
-                        [x, y, x + cell_size - 1, y + cell_size - 1],
-                        fill=color2
-                    )
+                    draw.rectangle([x, y, x + cell_size - 1, y + cell_size - 1], fill=color2)
 
         return checkerboard
 
@@ -973,11 +1047,17 @@ class BackgroundRemoverApp:
         self.drop_hint_label.pack(pady=(12, 0))
 
         # クリックイベント
-        for widget in [self.drop_zone_frame, drop_content, self.drop_icon_label, self.drop_text_label, self.drop_hint_label]:
+        for widget in [
+            self.drop_zone_frame,
+            drop_content,
+            self.drop_icon_label,
+            self.drop_text_label,
+            self.drop_hint_label,
+        ]:
             widget.bind("<Button-1>", lambda e: self._select_input())
 
         # ドラッグ＆ドロップ
-        if HAS_DND:
+        if DRAG_AND_DROP_AVAILABLE:
             self.drop_zone_frame.drop_target_register(DND_FILES)
             self.drop_zone_frame.dnd_bind("<<Drop>>", self._on_drop)
             self.drop_zone_frame.dnd_bind("<<DragEnter>>", self._on_drag_enter)
@@ -1125,118 +1205,136 @@ class BackgroundRemoverApp:
 
     def _update_ui_state(self) -> None:
         """現在の状態に応じてUIを更新（差分更新方式）"""
-        # 現在の表示状態を取得
-        drop_zone_visible = self.drop_zone_frame.winfo_ismapped()
-        thumbnail_visible = self.thumbnail_frame.winfo_ismapped()
+        state_handlers = {
+            self.STATE_INITIAL: self._update_ui_for_initial_state,
+            self.STATE_FILE_SELECTED: self._update_ui_for_file_selected_state,
+            self.STATE_PROCESSING: self._update_ui_for_processing_state,
+            self.STATE_COMPLETE: self._update_ui_for_complete_state,
+        }
 
-        # 状態に応じて必要な要素のみ更新
-        if self.current_state == self.STATE_INITIAL:
-            # 初期状態：ドロップゾーン + グレーアウトのボタン
-            if thumbnail_visible:
-                self.thumbnail_frame.pack_forget()
-            if not drop_zone_visible:
-                self.drop_zone_frame.pack(fill="both", expand=True)
-
-            # ボタン・リンク類を非表示
-            self.main_button.pack_forget()
-            self.cancel_button.pack_forget()
-            self.link_frame.pack_forget()
-            self.select_another_link.pack_forget()
-            self.retry_link.pack_forget()
-            self.process_another_link.pack_forget()
-            self.progress_overlay.place_forget()
-            self.complete_label.pack_forget()
-
-            # メインボタンを設定
-            self.main_button.configure(
-                text="🚀 背景を除去する",
-                state="disabled",
-                fg_color=COLORS["disabled"],
-            )
-            self.main_button.pack(fill="x", pady=(16, 0))
-
-        elif self.current_state == self.STATE_FILE_SELECTED:
-            # ファイル選択後
-            if drop_zone_visible:
-                self.drop_zone_frame.pack_forget()
-            if not thumbnail_visible:
-                self.thumbnail_frame.pack(fill="both", expand=True)
-
-            # 不要な要素を非表示
-            self.cancel_button.pack_forget()
-            self.progress_overlay.place_forget()
-            self.complete_label.pack_forget()
-            self.retry_link.pack_forget()
-            self.process_another_link.pack_forget()
-
-            # メインボタンを設定
-            self.main_button.pack_forget()
-            self.main_button.configure(
-                text="🚀 背景を除去する",
-                state="normal",
-                fg_color=COLORS["primary"],
-            )
-            self.main_button.pack(fill="x", pady=(0, 8))
-
-            # リンクを設定
-            self.link_frame.pack_forget()
-            self.select_another_link.pack_forget()
-            self.link_frame.pack(fill="x", pady=(8, 0))
-            self.select_another_link.pack(side="left", expand=True)
-
-        elif self.current_state == self.STATE_PROCESSING:
-            # 処理中
-            if drop_zone_visible:
-                self.drop_zone_frame.pack_forget()
-            if not thumbnail_visible:
-                self.thumbnail_frame.pack(fill="both", expand=True)
-
-            # 不要な要素を非表示
-            self.main_button.pack_forget()
-            self.link_frame.pack_forget()
-            self.select_another_link.pack_forget()
-            self.retry_link.pack_forget()
-            self.process_another_link.pack_forget()
-            self.complete_label.pack_forget()
-
-            # 円形プログレスをサムネイル上にオーバーレイ
-            self.progress_overlay.place(relx=0.5, rely=0.35, anchor="center")
-            self.cancel_button.pack(fill="x")
-
-        elif self.current_state == self.STATE_COMPLETE:
-            # 処理完了
-            if drop_zone_visible:
-                self.drop_zone_frame.pack_forget()
-            if not thumbnail_visible:
-                self.thumbnail_frame.pack(fill="both", expand=True)
-
-            # 不要な要素を非表示
-            self.cancel_button.pack_forget()
-            self.progress_overlay.place_forget()
-            self.select_another_link.pack_forget()
-
-            # 完了ラベルとボタンを設定
-            self.complete_label.pack_forget()
-            self.complete_label.pack(pady=(0, 16))
-            self.main_button.pack_forget()
-            self.main_button.configure(
-                text="💾 ファイルを保存",
-                state="normal",
-                fg_color=COLORS["primary"],
-            )
-            self.main_button.pack(fill="x", pady=(0, 8))
-
-            # リンクを設定
-            self.link_frame.pack_forget()
-            self.retry_link.pack_forget()
-            self.process_another_link.pack_forget()
-            self.link_frame.pack(fill="x", pady=(8, 0))
-            self.retry_link.pack(side="left", expand=True)
-            self.process_another_link.pack(side="left", expand=True)
+        handler = state_handlers.get(self.current_state)
+        if handler:
+            handler()
 
         # 再描画を確定
         self.root.update_idletasks()
 
+    def _update_ui_for_initial_state(self) -> None:
+        """初期状態のUI更新"""
+        drop_zone_visible = self.drop_zone_frame.winfo_ismapped()
+        thumbnail_visible = self.thumbnail_frame.winfo_ismapped()
+
+        # 初期状態：ドロップゾーン + グレーアウトのボタン
+        if thumbnail_visible:
+            self.thumbnail_frame.pack_forget()
+        if not drop_zone_visible:
+            self.drop_zone_frame.pack(fill="both", expand=True)
+
+        # ボタン・リンク類を非表示
+        self.main_button.pack_forget()
+        self.cancel_button.pack_forget()
+        self.link_frame.pack_forget()
+        self.select_another_link.pack_forget()
+        self.retry_link.pack_forget()
+        self.process_another_link.pack_forget()
+        self.progress_overlay.place_forget()
+        self.complete_label.pack_forget()
+
+        # メインボタンを設定
+        self.main_button.configure(
+            text="🚀 背景を除去する",
+            state="disabled",
+            fg_color=COLORS["disabled"],
+        )
+        self.main_button.pack(fill="x", pady=(16, 0))
+
+    def _update_ui_for_file_selected_state(self) -> None:
+        """ファイル選択後のUI更新"""
+        drop_zone_visible = self.drop_zone_frame.winfo_ismapped()
+        thumbnail_visible = self.thumbnail_frame.winfo_ismapped()
+
+        if drop_zone_visible:
+            self.drop_zone_frame.pack_forget()
+        if not thumbnail_visible:
+            self.thumbnail_frame.pack(fill="both", expand=True)
+
+        # 不要な要素を非表示
+        self.cancel_button.pack_forget()
+        self.progress_overlay.place_forget()
+        self.complete_label.pack_forget()
+        self.retry_link.pack_forget()
+        self.process_another_link.pack_forget()
+
+        # メインボタンを設定
+        self.main_button.pack_forget()
+        self.main_button.configure(
+            text="🚀 背景を除去する",
+            state="normal",
+            fg_color=COLORS["primary"],
+        )
+        self.main_button.pack(fill="x", pady=(0, 8))
+
+        # リンクを設定
+        self.link_frame.pack_forget()
+        self.select_another_link.pack_forget()
+        self.link_frame.pack(fill="x", pady=(8, 0))
+        self.select_another_link.pack(side="left", expand=True)
+
+    def _update_ui_for_processing_state(self) -> None:
+        """処理中のUI更新"""
+        drop_zone_visible = self.drop_zone_frame.winfo_ismapped()
+        thumbnail_visible = self.thumbnail_frame.winfo_ismapped()
+
+        if drop_zone_visible:
+            self.drop_zone_frame.pack_forget()
+        if not thumbnail_visible:
+            self.thumbnail_frame.pack(fill="both", expand=True)
+
+        # 不要な要素を非表示
+        self.main_button.pack_forget()
+        self.link_frame.pack_forget()
+        self.select_another_link.pack_forget()
+        self.retry_link.pack_forget()
+        self.process_another_link.pack_forget()
+        self.complete_label.pack_forget()
+
+        # 円形プログレスをサムネイル上にオーバーレイ
+        self.progress_overlay.place(relx=0.5, rely=0.35, anchor="center")
+        self.cancel_button.pack(fill="x")
+
+    def _update_ui_for_complete_state(self) -> None:
+        """処理完了時のUI更新"""
+        drop_zone_visible = self.drop_zone_frame.winfo_ismapped()
+        thumbnail_visible = self.thumbnail_frame.winfo_ismapped()
+
+        if drop_zone_visible:
+            self.drop_zone_frame.pack_forget()
+        if not thumbnail_visible:
+            self.thumbnail_frame.pack(fill="both", expand=True)
+
+        # 不要な要素を非表示
+        self.cancel_button.pack_forget()
+        self.progress_overlay.place_forget()
+        self.select_another_link.pack_forget()
+
+        # 完了ラベルとボタンを設定
+        self.complete_label.pack_forget()
+        self.complete_label.pack(pady=(0, 16))
+        self.main_button.pack_forget()
+        self.main_button.configure(
+            text="💾 ファイルを保存",
+            state="normal",
+            fg_color=COLORS["primary"],
+        )
+        self.main_button.pack(fill="x", pady=(0, 8))
+
+        # リンクを設定
+        self.link_frame.pack_forget()
+        self.retry_link.pack_forget()
+        self.process_another_link.pack_forget()
+        self.link_frame.pack(fill="x", pady=(8, 0))
+        self.retry_link.pack(side="left", expand=True)
+        self.process_another_link.pack(side="left", expand=True)
 
     def _on_drop(self, event) -> None:
         """ファイルがドロップされたときの処理"""
@@ -1311,8 +1409,7 @@ class BackgroundRemoverApp:
 
         if not is_supported_video(path):
             self._show_error_dialog(
-                "サポートされていない形式です",
-                f"対応形式: {', '.join(SUPPORTED_INPUT_EXTENSIONS)}"
+                "サポートされていない形式です", f"対応形式: {', '.join(SUPPORTED_INPUT_EXTENSIONS)}"
             )
             return
 
@@ -1458,11 +1555,14 @@ class BackgroundRemoverApp:
 
     def _on_complete(self) -> None:
         """処理完了時の処理"""
+
         def complete():
             self.is_processing = False
 
             # 処理済みサムネイルを取得（市松模様背景）
-            self.processed_thumbnail_image = self._extract_processed_thumbnail(self.temp_output_path)
+            self.processed_thumbnail_image = self._extract_processed_thumbnail(
+                self.temp_output_path
+            )
             if self.processed_thumbnail_image:
                 self.thumbnail_label.configure(image=self.processed_thumbnail_image)
 
@@ -1473,15 +1573,14 @@ class BackgroundRemoverApp:
 
     def _on_cancelled(self) -> None:
         """キャンセル時の処理"""
+
         def handle_cancelled():
             self.is_processing = False
 
             # 一時ファイルを削除
             if self.temp_output_path and Path(self.temp_output_path).exists():
-                try:
+                with contextlib.suppress(Exception):
                     os.remove(self.temp_output_path)
-                except Exception:
-                    pass
 
             self.current_state = self.STATE_FILE_SELECTED
             self._update_ui_state()
@@ -1490,6 +1589,7 @@ class BackgroundRemoverApp:
 
     def _on_error(self, error_message: str) -> None:
         """エラー発生時の処理"""
+
         def handle_error():
             self.is_processing = False
             self.current_state = self.STATE_FILE_SELECTED
@@ -1513,6 +1613,7 @@ class BackgroundRemoverApp:
         if save_path:
             try:
                 import shutil
+
                 # 一時ファイルを保存先にコピー
                 shutil.copy2(self.temp_output_path, save_path)
                 self.output_path = save_path
@@ -1558,9 +1659,7 @@ class BackgroundRemoverApp:
             icon="✅",
             message="保存しました",
             sub_message=(
-                f"保存先: {save_path}\n\n"
-                f"ファイルサイズ: {size_mb:.1f} MB"
-                f"{adjustment_info}"
+                f"保存先: {save_path}\n\nファイルサイズ: {size_mb:.1f} MB{adjustment_info}"
             ),
             height=dialog_height,
         )
@@ -1568,12 +1667,10 @@ class BackgroundRemoverApp:
 
         # 3秒後に自動で閉じる
         def auto_close():
-            try:
+            with contextlib.suppress(Exception):
                 dialog.destroy()
-            except Exception:
-                pass  # 既に閉じられている場合は無視
 
-        self.root.after(3000, auto_close)
+        self.root.after(TIMING_MS["auto_close_dialog"], auto_close)
 
     # =========================================================================
     # ダイアログ
@@ -1652,14 +1749,14 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    if HAS_DND:
+    if DRAG_AND_DROP_AVAILABLE:
         root = TkinterDnD.Tk()
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("green")
     else:
         root = ctk.CTk()
 
-    app = BackgroundRemoverApp(root)
+    BackgroundRemoverApp(root)
     root.mainloop()
 
 

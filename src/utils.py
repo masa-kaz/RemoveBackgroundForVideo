@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """ユーティリティ関数"""
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import torch
+
 
 # サポートする入力形式
 SUPPORTED_INPUT_EXTENSIONS = {".mp4", ".mov", ".m4v"}
@@ -18,10 +17,11 @@ OUTPUT_EXTENSION = ".mov"
 @dataclass
 class DeviceInfo:
     """デバイス情報を格納するデータクラス"""
+
     device: torch.device
     name: str
     is_gpu: bool
-    warning: Optional[str] = None
+    warning: str | None = None
 
 
 def get_device() -> torch.device:
@@ -89,7 +89,7 @@ def is_supported_video(file_path: str) -> bool:
     return ext in SUPPORTED_INPUT_EXTENSIONS
 
 
-def get_output_path(input_path: str, output_dir: Optional[str] = None) -> str:
+def get_output_path(input_path: str, output_dir: str | None = None) -> str:
     """出力ファイルパスを生成する
 
     Args:
@@ -147,5 +147,4 @@ def format_time(seconds: float) -> str:
 
     if hours > 0:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    else:
-        return f"{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"

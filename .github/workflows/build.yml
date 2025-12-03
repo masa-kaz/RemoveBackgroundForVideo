@@ -110,15 +110,11 @@ jobs:
             --collect-all "customtkinter" `
             run_app.py
 
-      - name: Create ZIP archive
-        run: |
-          Compress-Archive -Path "dist\BackgroundRemover_GPU" -DestinationPath "BackgroundRemover_Windows_GPU.zip"
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_Windows_GPU_${{ steps.timestamp.outputs.value }}
-          path: BackgroundRemover_Windows_GPU.zip
+          path: dist/BackgroundRemover_GPU
           retention-days: 90
 
   # =============================================================================
@@ -209,15 +205,11 @@ jobs:
             --collect-all "customtkinter" `
             run_app.py
 
-      - name: Create ZIP archive
-        run: |
-          Compress-Archive -Path "dist\BackgroundRemover_CPU" -DestinationPath "BackgroundRemover_Windows_CPU.zip"
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_Windows_CPU_${{ steps.timestamp.outputs.value }}
-          path: BackgroundRemover_Windows_CPU.zip
+          path: dist/BackgroundRemover_CPU
           retention-days: 90
 
   # =============================================================================
@@ -342,15 +334,11 @@ jobs:
           EOF
           rm -rf "dist/BackgroundRemover_Mac"
 
-      - name: Create ZIP archive
-        run: |
-          cd dist && zip -r ../BackgroundRemover_macOS.zip BackgroundRemover_Mac.app
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_macOS_${{ steps.timestamp.outputs.value }}
-          path: BackgroundRemover_macOS.zip
+          path: dist/BackgroundRemover_Mac.app
           retention-days: 90
 
   # =============================================================================
@@ -398,10 +386,33 @@ jobs:
           GPU_ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "url=${GPU_ARTIFACT_URL}" >> $GITHUB_OUTPUT
 
-      - name: List artifacts
+      - name: List downloaded artifacts
         run: |
           echo "Downloaded artifacts:"
-          find artifacts -type f -name "*.zip"
+          find artifacts -type d -o -type f | head -50
+
+      - name: Create ZIP archives with timestamp
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Windows CPU版をzip化
+          CPU_DIR=$(find artifacts -type d -name "BackgroundRemover_Windows_CPU_*" | head -1)
+          if [ -n "$CPU_DIR" ]; then
+            cd "$CPU_DIR"
+            zip -r "../../BackgroundRemover_Windows_CPU_${VERSION}.zip" .
+            cd ../..
+          fi
+
+          # macOS版をzip化
+          MAC_DIR=$(find artifacts -type d -name "BackgroundRemover_macOS_*" | head -1)
+          if [ -n "$MAC_DIR" ]; then
+            cd "$MAC_DIR"
+            zip -r "../../BackgroundRemover_macOS_${VERSION}.zip" .
+            cd ../..
+          fi
+
+          echo "Created ZIP files:"
+          ls -la *.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -409,14 +420,14 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
           files: |
-            artifacts/BackgroundRemover_Windows_CPU_*/BackgroundRemover_Windows_CPU.zip
-            artifacts/BackgroundRemover_macOS_*/BackgroundRemover_macOS.zip
+            BackgroundRemover_Windows_CPU_${{ steps.version.outputs.version }}.zip
+            BackgroundRemover_macOS_${{ steps.version.outputs.version }}.zip
           body: |
             ## ダウンロード
 
             ### 添付ファイル
-            - **Windows CPU版** - BackgroundRemover_Windows_CPU.zip
-            - **macOS版** - BackgroundRemover_macOS.zip
+            - **Windows CPU版** - BackgroundRemover_Windows_CPU_${{ steps.version.outputs.version }}.zip
+            - **macOS版** - BackgroundRemover_macOS_${{ steps.version.outputs.version }}.zip
 
             ### Windows GPU版 (CUDA対応)
             GPU版は2GBを超えるため、GitHub Artifactsからダウンロードしてください:
