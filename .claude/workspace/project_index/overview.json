@@ -35,16 +35,28 @@
     "tests/fixtures/": "テスト用動画ファイル",
     "models/": "AIモデル（rvm_mobilenetv3.torchscript）",
     "ffmpeg/": "ffmpeg実行ファイル",
+    "installer/": "Inno Setupインストーラースクリプト",
     "scripts/": "ユーティリティスクリプト",
     "docs/": "ドキュメント（マニュアル含む）",
     ".claude/workspace/": "Claude Code設定"
   },
-  "entry_point": "python -m src.main",
+  "entry_point": "just run",
   "build_scripts": {
     "windows_gpu": "build_gpu.bat",
     "windows_cpu": "build_cpu.bat",
     "macos": "build_mac.sh"
   },
+  "installer_scripts": {
+    "windows_gpu": "installer/setup_gpu.iss",
+    "windows_cpu": "installer/setup_cpu.iss"
+  },
+  "dev_commands": {
+    "run": "just run",
+    "lint": "just lint",
+    "format": "just format",
+    "test": "just test",
+    "check": "just check"
+  },
   "test_command": "pytest",
-  "total_tests": 145
+  "total_tests": 369
 }

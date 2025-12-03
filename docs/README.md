@@ -29,20 +29,25 @@
 
 ```bash
 # 依存パッケージのインストール
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # モデルファイルはリポジトリに同梱済み
 # models/rvm_mobilenetv3.torchscript
 
 # アプリ起動
-python -m src.main
+just run
 ```
 
-### Windows exe版
+### Windows版（インストーラー推奨）
 
-`dist/BackgroundRemover_GPU/` または `dist/BackgroundRemover_CPU/` フォルダ内の `BackgroundRemover.exe` を実行してください。
+**インストーラー版（推奨）**
+- `BackgroundRemover_GPU_Setup.exe` または `BackgroundRemover_CPU_Setup.exe` をダブルクリック
+- インストーラーがNVIDIA GPUを自動検出し、適切なバージョンかどうか確認します
 
-> **注意**: ZIPファイルは `C:\RBV` などドライブ直下の短いパスに解凍してください。長いパスでは解凍に失敗する場合があります。
+**ZIP版**
+- `dist/BackgroundRemover_GPU/` または `dist/BackgroundRemover_CPU/` フォルダ内の `BackgroundRemover.exe` を実行
+
+> **注意**: ZIP版は `C:\RBV` などドライブ直下の短いパスに解凍してください。長いパスでは解凍に失敗する場合があります。
 
 ### macOS版
 

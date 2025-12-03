@@ -10,24 +10,30 @@
 
 | ファイル | 対象環境 | 備考 |
 |---------|---------|------|
-| `BackgroundRemover_Setup.exe` | Windows + NVIDIA GPU | **インストーラー版（推奨）** |
+| `BackgroundRemover_GPU_Setup.exe` | Windows + NVIDIA GPU | **GPU版インストーラー（推奨）** |
+| `BackgroundRemover_CPU_Setup.exe` | Windows（GPU不要） | **CPU版インストーラー** |
 | `BackgroundRemover_Windows_GPU.zip` | Windows + NVIDIA GPU | ZIP版（上級者向け） |
-| `BackgroundRemover_Windows_CPU.zip` | Windows（GPU不要） | 軽量版、処理は低速 |
+| `BackgroundRemover_Windows_CPU.zip` | Windows（GPU不要） | ZIP版、処理は低速 |
 | `BackgroundRemover_macOS.zip` | macOS (Apple Silicon) | M1/M2 Mac向け |
 
 ### インストール手順
 
 #### Windows（インストーラー版 - 推奨）
 
-1. `BackgroundRemover_Setup.exe` をダウンロード
+1. `BackgroundRemover_GPU_Setup.exe` または `BackgroundRemover_CPU_Setup.exe` をダウンロード
 2. ダブルクリックして実行
-3. インストールウィザードに従ってインストール
-4. デスクトップまたはスタートメニューのショートカットから起動
+3. インストーラーがNVIDIA GPUを自動検出
+   - **GPU版**: GPU検出時のみインストール可能、未検出時は「CPU版をご利用ください」と表示
+   - **CPU版**: GPU検出時は警告表示（GPU版推奨）、未検出時はそのままインストール
+4. インストールウィザードに従ってインストール
+5. デスクトップまたはスタートメニューのショートカットから起動
 
 **メリット:**
+- NVIDIA GPU自動検出で適切なバージョンを案内
 - パス長制限の問題を自動回避
 - アンインストール機能付き
 - ショートカット自動作成
+- 上書きインストール（更新）対応
 
 #### Windows（ZIP版）
 

@@ -84,6 +84,55 @@
       ],
       "test_count": 19,
       "markers": ["slow"]
+    },
+    {
+      "file": "tests/test_installer.py",
+      "description": "インストーラースクリプト(.iss)の静的検証テスト",
+      "test_classes": [
+        "TestIssFilesExist: ISSファイルの存在確認",
+        "TestIssFileEncoding: エンコーディング確認",
+        "TestRequiredSections: 必須セクション確認",
+        "TestSetupSection: Setup項目の検証",
+        "TestVersionConsistency: バージョン整合性",
+        "TestGpuDetectionCode: GPU検出コードの存在確認",
+        "TestExeNameSettings: 実行ファイル名設定",
+        "TestEditionSettings: エディション設定",
+        "TestInstallDirectory: インストール先設定",
+        "TestWindowsRequirements: Windows要件",
+        "TestUninstallSettings: アンインストール設定"
+      ],
+      "test_count": 31
+    },
+    {
+      "file": "tests/test_gui.py",
+      "description": "GUIコンポーネントのテスト",
+      "test_classes": [
+        "TestIdleState: 待機状態のテスト",
+        "TestSelectedState: ファイル選択状態のテスト",
+        "TestProcessingState: 処理中状態のテスト",
+        "TestCompleteState: 完了状態のテスト"
+      ],
+      "test_count": 12
+    },
+    {
+      "file": "tests/test_video_compressor.py",
+      "description": "動画圧縮機能のテスト",
+      "test_classes": [
+        "TestCompressionResult: 圧縮結果データクラスのテスト",
+        "TestVerifyVideoIntegrity: 動画整合性検証のテスト",
+        "TestCompressVideo: 圧縮機能のテスト"
+      ],
+      "test_count": 30
+    },
+    {
+      "file": "tests/test_thumbnail_responsive.py",
+      "description": "サムネイルレスポンシブ機能のテスト",
+      "test_classes": [
+        "TestThumbnailSizeCalculation: サムネイルサイズ計算",
+        "TestCalculateThumbnailSizeFunction: _calculate_thumbnail_size関数",
+        "TestOnWindowResizeFunction: _on_window_resize関数"
+      ],
+      "test_count": 20
     }
   ],
   "fixtures": [
@@ -97,11 +146,12 @@
     }
   ],
   "commands": {
-    "run_all": "pytest",
+    "run_all": "just test",
     "run_verbose": "pytest -v",
     "run_with_coverage": "pytest --cov=src",
     "run_without_slow": "pytest -m 'not slow'",
-    "run_only_e2e": "pytest tests/test_e2e.py"
+    "run_only_e2e": "pytest tests/test_e2e.py",
+    "run_only_installer": "pytest tests/test_installer.py"
   },
-  "total_test_count": 145
+  "total_test_count": 369
 }
