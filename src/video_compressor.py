@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """動画容量削減モジュール
 
 ProRes 4444形式の動画を指定サイズ以下に圧縮する。
@@ -9,29 +8,44 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
 
 from video_processor import find_ffmpeg, get_video_info
 
 
-# デフォルトの最大ファイルサイズ (MB)
+# ファイルサイズ設定
 DEFAULT_MAX_SIZE_MB = 1023
+
+# ビットレート設定
+DEFAULT_AUDIO_BITRATE_KBPS = 128
+MIN_VIDEO_BITRATE_KBPS = 500  # これ以下だと品質が著しく低下
+
+# 安全マージン（推定サイズからの余裕、5%）
+SAFETY_MARGIN = 0.95
+
+# VP9エンコード設定
+VP9_VIDEO_BITRATE = "2M"
+VP9_CRF = "35"  # 品質設定（0-63、高いほど低品質・小サイズ）
+
+# ffprobe タイムアウト（秒）
+FFPROBE_TIMEOUT_SECONDS = 30
 
 
 @dataclass
 class CompressionResult:
     """圧縮結果"""
+
     success: bool
     input_path: str
     output_path: str
     original_size_mb: float
     compressed_size_mb: float
     compression_ratio: float
-    target_bitrate_kbps: Optional[int] = None
-    error_message: Optional[str] = None
-    backup_path: Optional[str] = None
+    target_bitrate_kbps: int | None = None
+    error_message: str | None = None
+    backup_path: str | None = None
 
 
 def get_file_size_mb(file_path: str) -> float:
@@ -49,8 +63,8 @@ def get_file_size_mb(file_path: str) -> float:
 def calculate_target_bitrate(
     duration_seconds: float,
     max_size_mb: float,
-    audio_bitrate_kbps: int = 128,
-    safety_margin: float = 0.95,
+    audio_bitrate_kbps: int = DEFAULT_AUDIO_BITRATE_KBPS,
+    safety_margin: float = SAFETY_MARGIN,
 ) -> int:
     """目標ビットレートを計算する
 
@@ -58,7 +72,7 @@ def calculate_target_bitrate(
         duration_seconds: 動画の長さ（秒）
         max_size_mb: 最大ファイルサイズ (MB)
         audio_bitrate_kbps: 音声ビットレート (kbps)
-        safety_margin: 安全マージン（0.95 = 5%余裕を持つ）
+        safety_margin: 安全マージン（SAFETY_MARGIN = 5%余裕を持つ）
 
     Returns:
         目標ビットレート (kbps)
@@ -73,8 +87,8 @@ def calculate_target_bitrate(
     # ビットレート (kbps) に変換
     video_bitrate_kbps = int(video_bits / duration_seconds / 1000)
 
-    # 最低ビットレートを保証（品質が極端に下がらないように）
-    return max(video_bitrate_kbps, 500)
+    # 最低ビットレートを保証（これ以下だと品質が著しく低下）
+    return max(video_bitrate_kbps, MIN_VIDEO_BITRATE_KBPS)
 
 
 def verify_video_integrity(file_path: str) -> bool:
@@ -105,14 +119,17 @@ def verify_video_integrity(file_path: str) -> bool:
         result = subprocess.run(
             [
                 str(ffprobe_path),
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "csv=p=0",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
                 file_path,
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=FFPROBE_TIMEOUT_SECONDS,
         )
         # 正常に終了し、durationが取得できれば整合性OK
         return result.returncode == 0 and len(result.stdout.strip()) > 0
@@ -122,10 +139,10 @@ def verify_video_integrity(file_path: str) -> bool:
 
 def compress_video(
     input_path: str,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     max_size_mb: float = DEFAULT_MAX_SIZE_MB,
     preserve_alpha: bool = True,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> CompressionResult:
     """動画を指定サイズ以下に圧縮する
 
@@ -200,17 +217,17 @@ def compress_video(
         temp_dir = tempfile.gettempdir()
         temp_output = Path(temp_dir) / f"compressed_{Path(input_path).name}"
         final_output = input_path
-        use_temp = True
+        should_use_temp_file = True
     else:
         temp_output = Path(output_path)
         final_output = output_path
-        use_temp = False
+        should_use_temp_file = False
 
     # ffmpegコマンドを構築
     if preserve_alpha:
         # VP9 + WebMで透過を保持（効率的な圧縮、Canva対応）
         # 出力ファイル名を.webmに変更
-        if use_temp:
+        if should_use_temp_file:
             temp_output = Path(temp_dir) / f"compressed_{Path(input_path).stem}.webm"
         else:
             temp_output = Path(output_path).with_suffix(".webm")
@@ -220,16 +237,26 @@ def compress_video(
         cmd = [
             ffmpeg_path,
             "-y",  # 上書き確認なし
-            "-i", input_path,
-            "-c:v", "libvpx-vp9",
-            "-pix_fmt", "yuva420p",  # 透過対応
-            "-b:v", "2M",  # ビットレート2Mbps
-            "-crf", "35",  # 品質設定
-            "-deadline", "realtime",  # 最速モード
-            "-cpu-used", "8",  # 最大CPU使用
-            "-row-mt", "1",  # マルチスレッド有効
-            "-c:a", "libopus",
-            "-b:a", "128k",
+            "-i",
+            input_path,
+            "-c:v",
+            "libvpx-vp9",
+            "-pix_fmt",
+            "yuva420p",  # 透過対応
+            "-b:v",
+            VP9_VIDEO_BITRATE,
+            "-crf",
+            VP9_CRF,
+            "-deadline",
+            "realtime",  # 最速モード
+            "-cpu-used",
+            "8",  # 最大CPU使用（0-8、8が最速）
+            "-row-mt",
+            "1",  # マルチスレッド有効
+            "-c:a",
+            "libopus",
+            "-b:a",
+            f"{DEFAULT_AUDIO_BITRATE_KBPS}k",
             str(temp_output),
         ]
     else:
@@ -237,13 +264,20 @@ def compress_video(
         cmd = [
             ffmpeg_path,
             "-y",
-            "-i", input_path,
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-b:v", f"{target_bitrate_kbps}k",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "+faststart",
+            "-i",
+            input_path,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-b:v",
+            f"{target_bitrate_kbps}k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            f"{DEFAULT_AUDIO_BITRATE_KBPS}k",
+            "-movflags",
+            "+faststart",
             str(temp_output),
         ]
 
@@ -297,7 +331,7 @@ def compress_video(
 
         # 一時ファイルを使用した場合
         # preserve_alphaの場合はWebM形式なので、元のMOVと同じディレクトリに保存
-        if use_temp:
+        if should_use_temp_file:
             if preserve_alpha:
                 # WebM: 元ファイルと同じディレクトリに.webmとして保存
                 final_output = str(Path(input_path).with_suffix(".webm"))
@@ -335,7 +369,7 @@ def compress_video(
 
     except Exception as e:
         # 一時ファイルがあれば削除
-        if use_temp and temp_output.exists():
+        if should_use_temp_file and temp_output.exists():
             temp_output.unlink()
 
         # バックアップから復元

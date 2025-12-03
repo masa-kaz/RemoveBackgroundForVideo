@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """RobustVideoMatting モデル管理"""
 
 import io
 from pathlib import Path
-from typing import Optional, Tuple
 
 import torch
+from torch import nn
 
 from utils import get_device
+
 
 # モデルのダウンロードURL（TorchScript形式）
 MODEL_URLS = {
@@ -17,6 +17,13 @@ MODEL_URLS = {
 
 # デフォルトモデルディレクトリ
 DEFAULT_MODEL_DIR = Path(__file__).parent.parent / "models"
+
+# ダウンサンプル比率の設定
+# RVMは入力解像度を下げて処理速度を向上させる機能がある
+# 比率が小さいほど高速だが、エッジの精度が低下する
+MIN_DOWNSAMPLE_RATIO = 0.1  # 最小値: これ以下だと品質が著しく低下
+MAX_DOWNSAMPLE_RATIO = 1.0  # 最大値: 元の解像度で処理
+DEFAULT_DOWNSAMPLE_RATIO = 0.5  # デフォルト: 速度と品質のバランス
 
 
 class RVMModel:
@@ -28,9 +35,9 @@ class RVMModel:
 
     def __init__(
         self,
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
         model_type: str = "mobilenetv3",
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
     ):
         """モデルを初期化する
 
@@ -41,9 +48,9 @@ class RVMModel:
         """
         self.model_type = model_type
         self.device = device or get_device()
-        self.model: Optional[nn.Module] = None
-        self.rec: Optional[Tuple[torch.Tensor, ...]] = None
-        self.downsample_ratio: float = 0.5
+        self.model: nn.Module | None = None
+        self.rec: tuple[torch.Tensor, ...] | None = None
+        self.downsample_ratio: float = DEFAULT_DOWNSAMPLE_RATIO
 
         # モデルパスの決定
         if model_path:
@@ -84,9 +91,7 @@ class RVMModel:
         return self.model is not None
 
     @torch.no_grad()
-    def process_frame(
-        self, frame: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def process_frame(self, frame: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """1フレームを処理してアルファマスクを生成する
 
         Args:
@@ -110,9 +115,7 @@ class RVMModel:
         if self.rec is None:
             fgr, pha, *self.rec = self.model(src, downsample_ratio=self.downsample_ratio)
         else:
-            fgr, pha, *self.rec = self.model(
-                src, *self.rec, downsample_ratio=self.downsample_ratio
-            )
+            fgr, pha, *self.rec = self.model(src, *self.rec, downsample_ratio=self.downsample_ratio)
 
         # バッチ次元を削除して返す
         return fgr.squeeze(0), pha.squeeze(0)
@@ -121,13 +124,13 @@ class RVMModel:
         """ダウンサンプル比率を設定する
 
         Args:
-            ratio: ダウンサンプル比率（0.1〜1.0）
+            ratio: ダウンサンプル比率（MIN_DOWNSAMPLE_RATIO〜MAX_DOWNSAMPLE_RATIO）
                    小さいほど高速だが精度が下がる
         """
-        self.downsample_ratio = max(0.1, min(1.0, ratio))
+        self.downsample_ratio = max(MIN_DOWNSAMPLE_RATIO, min(MAX_DOWNSAMPLE_RATIO, ratio))
 
 
-def download_model(model_type: str = "mobilenetv3", save_dir: Optional[str] = None) -> str:
+def download_model(model_type: str = "mobilenetv3", save_dir: str | None = None) -> str:
     """モデルをダウンロードする
 
     Args:

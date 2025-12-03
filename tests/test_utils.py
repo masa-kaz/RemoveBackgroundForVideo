@@ -1,23 +1,21 @@
-# -*- coding: utf-8 -*-
 """utils.py のテスト"""
 
 import os
 import tempfile
-from pathlib import Path
 
 import pytest
 import torch
 
 from src.utils import (
+    SUPPORTED_INPUT_EXTENSIONS,
+    DeviceInfo,
+    ensure_directory,
+    format_time,
     get_device,
     get_device_info,
-    DeviceInfo,
-    is_supported_video,
-    get_output_path,
-    ensure_directory,
     get_file_size_mb,
-    format_time,
-    SUPPORTED_INPUT_EXTENSIONS,
+    get_output_path,
+    is_supported_video,
 )
 
 

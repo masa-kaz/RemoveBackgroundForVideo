@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """E2E (End-to-End) テスト
 
 実際の動画ファイルを使用した統合テスト。
@@ -10,17 +9,15 @@ MP4/MOVそれぞれ1回のみ処理を実行する。
 """
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import pytest
 
 from src.rvm_model import RVMModel
-from src.video_processor import VideoProcessor, get_video_info, find_ffmpeg
 from src.utils import get_device_info, is_supported_video
+from src.video_processor import VideoProcessor, find_ffmpeg, get_video_info
 
 
 # テスト用動画のパス
@@ -51,6 +48,7 @@ def get_output_path(name: str) -> Path:
 # =============================================================================
 # モジュールスコープのフィクスチャ（処理結果を共有）
 # =============================================================================
+
 
 @pytest.fixture(scope="module")
 def rvm_model():
@@ -107,6 +105,7 @@ def processed_mov_output(rvm_model) -> Path:
 # =============================================================================
 # 基本テスト（フィクスチャ不要）
 # =============================================================================
+
 
 class TestFixturesExist:
     """テスト用動画ファイルの存在確認"""
@@ -190,7 +189,7 @@ class TestDeviceDetection:
 
 @pytest.mark.skipif(
     not Path(__file__).parent.parent.joinpath("models", "rvm_mobilenetv3.torchscript").exists(),
-    reason="RVMモデルがインストールされていません"
+    reason="RVMモデルがインストールされていません",
 )
 class TestModelLoadingE2E:
     """モデル読み込みのE2Eテスト"""
@@ -220,6 +219,7 @@ class TestModelLoadingE2E:
 # =============================================================================
 # フル処理E2Eテスト（フィクスチャを使用）
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestFullProcessingE2E:
@@ -271,6 +271,7 @@ class TestFullProcessingE2E:
 # 出力ファイル検証テスト（フィクスチャを使用）
 # =============================================================================
 
+
 def _get_video_codec_info(video_path: str) -> dict:
     """ffprobeで動画のコーデック情報を取得"""
     ffmpeg_path = find_ffmpeg()
@@ -292,8 +293,10 @@ def _get_video_codec_info(video_path: str) -> dict:
     result = subprocess.run(
         [
             str(ffprobe_path),
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_streams",
             video_path,
         ],
@@ -350,8 +353,9 @@ class TestOutputValidation:
         # ピクセルフォーマットがアルファを含むこと
         pix_fmt = video_stream.get("pix_fmt", "")
         # ProRes 4444のアルファ付きフォーマット
-        assert "a" in pix_fmt or "alpha" in pix_fmt.lower(), \
+        assert "a" in pix_fmt or "alpha" in pix_fmt.lower(), (
             f"アルファチャンネルがありません: {pix_fmt}"
+        )
 
     def test_output_dimensions_match_input(self, processed_mp4_output):
         """出力の解像度が入力と一致すること"""
@@ -362,10 +366,12 @@ class TestOutputValidation:
         output_info = get_video_info(str(processed_mp4_output))
 
         # 解像度が一致すること
-        assert output_info.width == input_info.width, \
+        assert output_info.width == input_info.width, (
             f"幅が一致しません: 入力={input_info.width}, 出力={output_info.width}"
-        assert output_info.height == input_info.height, \
+        )
+        assert output_info.height == input_info.height, (
             f"高さが一致しません: 入力={input_info.height}, 出力={output_info.height}"
+        )
 
     def test_output_fps_matches_input(self, processed_mp4_output):
         """出力のFPSが入力と一致すること"""
@@ -376,8 +382,9 @@ class TestOutputValidation:
         output_info = get_video_info(str(processed_mp4_output))
 
         # FPSが一致すること（小数点以下の誤差を許容）
-        assert abs(output_info.fps - input_info.fps) < 0.1, \
+        assert abs(output_info.fps - input_info.fps) < 0.1, (
             f"FPSが一致しません: 入力={input_info.fps}, 出力={output_info.fps}"
+        )
 
     def test_output_frame_count_matches_input(self, processed_mp4_output):
         """出力のフレーム数が入力とほぼ一致すること"""
@@ -390,8 +397,9 @@ class TestOutputValidation:
         # フレーム数がほぼ一致すること（1フレームの誤差を許容）
         # OpenCVとffmpegの間でフレームカウントに微小な差が生じることがある
         frame_diff = abs(output_info.frame_count - input_info.frame_count)
-        assert frame_diff <= 1, \
+        assert frame_diff <= 1, (
             f"フレーム数の差が大きすぎます: 入力={input_info.frame_count}, 出力={output_info.frame_count}, 差={frame_diff}"
+        )
 
     def test_mov_output_is_prores_4444(self, processed_mov_output):
         """MOV出力がProRes 4444形式であること"""

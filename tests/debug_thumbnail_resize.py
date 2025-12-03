@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """サムネイルリサイズのデバッグスクリプト
 
 実際にGUIを起動してリサイズイベントを確認する
@@ -7,15 +6,18 @@
 import sys
 from pathlib import Path
 
+
 # srcディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import customtkinter as ctk
 from PIL import Image
 
+
 # tkinterdnd2のインポート（ドラッグ＆ドロップ対応）
 try:
     from tkinterdnd2 import TkinterDnD
+
     HAS_DND = True
 except ImportError:
     HAS_DND = False
@@ -156,7 +158,9 @@ class DebugApp:
         window_width = self.root.winfo_width()
         window_height = self.root.winfo_height()
         thumb_size = self._calculate_thumbnail_size()
-        info = f"Window: {window_width}x{window_height}, Thumb: {thumb_size[0]}x{thumb_size[1]}\n{msg}"
+        info = (
+            f"Window: {window_width}x{window_height}, Thumb: {thumb_size[0]}x{thumb_size[1]}\n{msg}"
+        )
         self.debug_label.configure(text=info)
         print(f"[DEBUG] {msg} | Window: {window_width}x{window_height}")
 
@@ -167,7 +171,7 @@ def main():
     else:
         root = ctk.CTk()
 
-    app = DebugApp(root)
+    DebugApp(root)
     root.mainloop()
 
 

@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
 """video_processor.py のテスト"""
 
 import os
-import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -14,12 +12,13 @@ import torch
 from PIL import Image
 
 from src.video_processor import (
-    VideoProcessor,
-    VideoInfo,
+    OutputParams,
     ProcessingCancelled,
-    get_video_info,
-    find_ffmpeg,
+    VideoInfo,
+    VideoProcessor,
     _check_audio_stream,
+    find_ffmpeg,
+    get_video_info,
 )
 
 
@@ -144,12 +143,14 @@ class TestFindFfmpeg:
 
     def test_ffmpeg_not_found(self):
         """ffmpegが見つからない場合RuntimeErrorを発生すること"""
-        with patch("subprocess.run", side_effect=FileNotFoundError()):
-            with patch("pathlib.Path.exists", return_value=False):
-                with pytest.raises(RuntimeError) as exc_info:
-                    find_ffmpeg()
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError()),
+            patch("pathlib.Path.exists", return_value=False),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            find_ffmpeg()
 
-                assert "ffmpegが見つかりません" in str(exc_info.value)
+        assert "ffmpegが見つかりません" in str(exc_info.value)
 
 
 class TestVideoProcessor:
@@ -358,6 +359,23 @@ class TestVideoProcessorPauseResume:
 class TestVideoProcessorCreateProresVideo:
     """VideoProcessor._create_prores_video メソッドのテスト"""
 
+    def _create_output_params(
+        self,
+        width: int = 1920,
+        height: int = 1080,
+        fps: float = 30.0,
+    ) -> OutputParams:
+        """テスト用のOutputParamsを作成するヘルパー"""
+        return OutputParams(
+            width=width,
+            height=height,
+            fps=fps,
+            original_width=width,
+            original_height=height,
+            original_fps=fps,
+            is_adjusted=False,
+        )
+
     @patch("subprocess.run")
     def test_create_prores_video_without_audio(self, mock_run):
         """音声なしでProRes動画を作成できること"""
@@ -370,12 +388,13 @@ class TestVideoProcessorCreateProresVideo:
         with tempfile.TemporaryDirectory() as temp_dir:
             frames_dir = Path(temp_dir)
             output_path = str(frames_dir / "output.mov")
+            output_params = self._create_output_params()
 
             processor._create_prores_video(
                 frames_dir=frames_dir,
                 input_path="/dummy/input.mp4",
                 output_path=output_path,
-                fps=30.0,
+                output_params=output_params,
                 has_audio=False,
             )
 
@@ -399,12 +418,13 @@ class TestVideoProcessorCreateProresVideo:
         with tempfile.TemporaryDirectory() as temp_dir:
             frames_dir = Path(temp_dir)
             output_path = str(frames_dir / "output.mov")
+            output_params = self._create_output_params()
 
             processor._create_prores_video(
                 frames_dir=frames_dir,
                 input_path="/dummy/input.mp4",
                 output_path=output_path,
-                fps=30.0,
+                output_params=output_params,
                 has_audio=True,
             )
 
@@ -419,10 +439,7 @@ class TestVideoProcessorCreateProresVideo:
     @patch("subprocess.run")
     def test_create_prores_video_ffmpeg_error(self, mock_run):
         """ffmpegエラー時にRuntimeErrorを発生すること"""
-        mock_run.return_value = Mock(
-            returncode=1,
-            stderr="Error: Invalid input"
-        )
+        mock_run.return_value = Mock(returncode=1, stderr="Error: Invalid input")
         mock_model = Mock()
 
         with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
@@ -431,18 +448,146 @@ class TestVideoProcessorCreateProresVideo:
         with tempfile.TemporaryDirectory() as temp_dir:
             frames_dir = Path(temp_dir)
             output_path = str(frames_dir / "output.mov")
+            output_params = self._create_output_params()
 
             with pytest.raises(RuntimeError) as exc_info:
                 processor._create_prores_video(
                     frames_dir=frames_dir,
                     input_path="/dummy/input.mp4",
                     output_path=output_path,
-                    fps=30.0,
+                    output_params=output_params,
                     has_audio=False,
                 )
 
             assert "ffmpegエラー" in str(exc_info.value)
             assert "Invalid input" in str(exc_info.value)
+
+
+class TestVideoProcessorBuildFfmpegCommand:
+    """VideoProcessor._build_ffmpeg_command メソッドのテスト"""
+
+    def _create_output_params(
+        self,
+        width: int = 1920,
+        height: int = 1080,
+        fps: float = 30.0,
+        original_width: int | None = None,
+        original_height: int | None = None,
+        original_fps: float | None = None,
+    ) -> OutputParams:
+        """テスト用のOutputParamsを作成するヘルパー"""
+        return OutputParams(
+            width=width,
+            height=height,
+            fps=fps,
+            original_width=original_width or width,
+            original_height=original_height or height,
+            original_fps=original_fps or fps,
+            is_adjusted=(original_width is not None or original_fps is not None),
+        )
+
+    def test_build_command_basic_structure(self):
+        """基本的なコマンド構造が正しいこと"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            output_params = self._create_output_params()
+
+            cmd = processor._build_ffmpeg_command(
+                frames_dir=frames_dir,
+                input_path="/dummy/input.mp4",
+                output_path="/dummy/output.mov",
+                output_params=output_params,
+                has_audio=False,
+            )
+
+            # 基本要素が含まれていること
+            assert cmd[0] == "ffmpeg"
+            assert "-y" in cmd
+            assert "-c:v" in cmd
+            assert "prores_ks" in cmd
+            assert "/dummy/output.mov" in cmd
+
+    def test_build_command_with_resolution_scaling(self):
+        """解像度スケーリングが適用されること"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            # 解像度が調整されたパラメータ
+            output_params = self._create_output_params(
+                width=960,
+                height=540,
+                original_width=1920,
+                original_height=1080,
+            )
+
+            cmd = processor._build_ffmpeg_command(
+                frames_dir=frames_dir,
+                input_path="/dummy/input.mp4",
+                output_path="/dummy/output.mov",
+                output_params=output_params,
+                has_audio=False,
+            )
+
+            # スケールフィルタが含まれていること
+            assert "-vf" in cmd
+            vf_index = cmd.index("-vf")
+            assert "scale=960:540" in cmd[vf_index + 1]
+
+    def test_build_command_without_audio_no_audio_options(self):
+        """音声なしの場合、音声オプションが含まれないこと"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            output_params = self._create_output_params()
+
+            cmd = processor._build_ffmpeg_command(
+                frames_dir=frames_dir,
+                input_path="/dummy/input.mp4",
+                output_path="/dummy/output.mov",
+                output_params=output_params,
+                has_audio=False,
+            )
+
+            assert "-c:a" not in cmd
+            assert "-map" not in cmd
+            assert "-shortest" not in cmd
+
+    def test_build_command_with_audio_has_audio_options(self):
+        """音声ありの場合、音声オプションが含まれること"""
+        mock_model = Mock()
+
+        with patch("src.video_processor.find_ffmpeg", return_value="ffmpeg"):
+            processor = VideoProcessor(model=mock_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frames_dir = Path(temp_dir)
+            output_params = self._create_output_params()
+
+            cmd = processor._build_ffmpeg_command(
+                frames_dir=frames_dir,
+                input_path="/dummy/input.mp4",
+                output_path="/dummy/output.mov",
+                output_params=output_params,
+                has_audio=True,
+            )
+
+            assert "-c:a" in cmd
+            assert "aac" in cmd
+            assert "-map" in cmd
+            assert "-shortest" in cmd
 
 
 class TestGetVideoInfoEdgeCases:
@@ -524,9 +669,11 @@ class TestVideoProcessorWithMock:
             Path(input_path).touch()
 
             # 処理を実行（実際の処理をモック）
-            with patch.object(processor, "_process_frames") as mock_process:
-                with patch.object(processor, "_create_prores_video") as mock_create:
-                    result = processor.process(input_path, output_path)
+            with (
+                patch.object(processor, "_process_frames"),
+                patch.object(processor, "_create_prores_video"),
+            ):
+                result = processor.process(input_path, output_path)
 
             # 結果を確認
             assert result == output_path

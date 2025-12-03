@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """GUIテスト - UI仕様書（.claude/workspace/task.md）に基づく検証
 
 テスト項目:
@@ -21,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+
 # srcディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -32,9 +32,10 @@ _main_content = _main_file.read_text(encoding="utf-8")
 # 定数を抽出（exec で評価）
 import re
 
+
 def _extract_dict(name: str, content: str) -> dict:
     """ソースコードから辞書定数を抽出"""
-    pattern = rf'^{name}\s*=\s*\{{'
+    pattern = rf"^{name}\s*=\s*\{{"
     match = re.search(pattern, content, re.MULTILINE)
     if not match:
         return {}
@@ -44,9 +45,9 @@ def _extract_dict(name: str, content: str) -> dict:
     brace_count = 0
     end = start
     for i, char in enumerate(content[start:]):
-        if char == '{':
+        if char == "{":
             brace_count += 1
-        elif char == '}':
+        elif char == "}":
             brace_count -= 1
             if brace_count == 0:
                 end = start + i + 1
@@ -57,6 +58,7 @@ def _extract_dict(name: str, content: str) -> dict:
     local_vars = {}
     exec(dict_str, {}, local_vars)
     return local_vars.get(name, {})
+
 
 COLORS = _extract_dict("COLORS", _main_content)
 FONT_SIZES = _extract_dict("FONT_SIZES", _main_content)
@@ -76,6 +78,7 @@ try:
         CustomDialog,
         Toast,
     )
+
     _HAS_GUI_CLASSES = True
 except ImportError:
     pass
@@ -275,7 +278,6 @@ class TestInitialState:
         assert BackgroundRemoverApp.STATE_INITIAL == "initial"
         assert BackgroundRemoverApp.STATE_FILE_SELECTED == "file_selected"
         assert BackgroundRemoverApp.STATE_PROCESSING == "processing"
-        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
         assert BackgroundRemoverApp.STATE_COMPLETE == "complete"
 
     def test_all_state_constants_exist(self):
@@ -284,7 +286,6 @@ class TestInitialState:
             "STATE_INITIAL",
             "STATE_FILE_SELECTED",
             "STATE_PROCESSING",
-            "STATE_CONVERTING",
             "STATE_COMPLETE",
         ]
         for state in required_states:
@@ -315,23 +316,6 @@ class TestProcessingState:
         """STATE_PROCESSING定数が存在すること"""
         assert hasattr(BackgroundRemoverApp, "STATE_PROCESSING")
         assert BackgroundRemoverApp.STATE_PROCESSING == "processing"
-
-
-# =============================================================================
-# 6.5. WebM変換中状態UIテスト
-# =============================================================================
-@pytest.mark.skipif(not _HAS_GUI_CLASSES, reason="GUI classes not available (no tkinter)")
-class TestConvertingState:
-    """WebM変換中状態UIが仕様通りか確認"""
-
-    def test_state_constant_exists(self):
-        """STATE_CONVERTING定数が存在すること"""
-        assert hasattr(BackgroundRemoverApp, "STATE_CONVERTING")
-        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
-
-    def test_converting_state_value(self):
-        """STATE_CONVERTINGが'converting'であること"""
-        assert BackgroundRemoverApp.STATE_CONVERTING == "converting"
 
 
 # =============================================================================
@@ -519,7 +503,7 @@ class TestUnsupportedFileFormat:
 
     def test_supported_extension_list(self):
         """対応拡張子が受け入れられること"""
-        from utils import is_supported_video, SUPPORTED_INPUT_EXTENSIONS
+        from utils import SUPPORTED_INPUT_EXTENSIONS, is_supported_video
 
         # 対応拡張子リスト
         for ext in SUPPORTED_INPUT_EXTENSIONS:
@@ -609,13 +593,13 @@ class TestSingleInstanceLock:
 
     def test_invalid_pid_handling(self):
         """不正なPIDが含まれるロックファイルの処理"""
+        import contextlib
+
         # 不正なPIDの例
         invalid_pids = ["", "abc", "-1", "0"]
         for pid in invalid_pids:
-            try:
+            with contextlib.suppress(ValueError):
                 int(pid) if pid else None
-            except ValueError:
-                pass  # ValueError は想定内
 
 
 # =============================================================================

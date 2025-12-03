@@ -1,15 +1,21 @@
-# -*- coding: utf-8 -*-
 """rvm_model.py のテスト"""
 
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
-from src.rvm_model import RVMModel, download_model, MODEL_URLS, DEFAULT_MODEL_DIR
+from src.rvm_model import (
+    DEFAULT_DOWNSAMPLE_RATIO,
+    MAX_DOWNSAMPLE_RATIO,
+    MIN_DOWNSAMPLE_RATIO,
+    MODEL_URLS,
+    RVMModel,
+    download_model,
+)
 
 
 class TestRVMModel:
@@ -22,7 +28,7 @@ class TestRVMModel:
         assert model.model_type == "mobilenetv3"
         assert model.model is None
         assert model.rec is None
-        assert model.downsample_ratio == 0.25
+        assert model.downsample_ratio == DEFAULT_DOWNSAMPLE_RATIO
 
     def test_init_custom_model_type(self):
         """カスタムモデルタイプを指定できること"""
@@ -84,14 +90,14 @@ class TestRVMModel:
         model = RVMModel()
 
         model.set_downsample_ratio(0.05)
-        assert model.downsample_ratio == 0.1
+        assert model.downsample_ratio == MIN_DOWNSAMPLE_RATIO
 
     def test_set_downsample_ratio_clamp_high(self):
         """ダウンサンプル比率が上限でクランプされること"""
         model = RVMModel()
 
         model.set_downsample_ratio(1.5)
-        assert model.downsample_ratio == 1.0
+        assert model.downsample_ratio == MAX_DOWNSAMPLE_RATIO
 
     def test_process_frame_without_load(self):
         """ロードせずにprocess_frameを呼ぶとRuntimeErrorを発生すること"""
@@ -205,3 +211,25 @@ class TestModelURLs:
             assert url.startswith("https://")
             assert ".torchscript" in url
             assert model_type in url
+
+
+class TestDownsampleRatioConstants:
+    """ダウンサンプル比率定数のテスト"""
+
+    def test_min_downsample_ratio_value(self):
+        """最小ダウンサンプル比率が正しい値であること"""
+        assert MIN_DOWNSAMPLE_RATIO == 0.1
+
+    def test_max_downsample_ratio_value(self):
+        """最大ダウンサンプル比率が正しい値であること"""
+        assert MAX_DOWNSAMPLE_RATIO == 1.0
+
+    def test_default_downsample_ratio_value(self):
+        """デフォルトダウンサンプル比率が正しい値であること"""
+        assert DEFAULT_DOWNSAMPLE_RATIO == 0.5
+
+    def test_downsample_ratio_range_is_valid(self):
+        """ダウンサンプル比率の範囲が妥当であること"""
+        assert MIN_DOWNSAMPLE_RATIO > 0
+        assert MAX_DOWNSAMPLE_RATIO <= 1.0
+        assert MIN_DOWNSAMPLE_RATIO < DEFAULT_DOWNSAMPLE_RATIO < MAX_DOWNSAMPLE_RATIO

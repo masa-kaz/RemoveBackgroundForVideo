@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """動画圧縮モジュールのテスト
 
 video_compressor.py の機能をテストする。
@@ -11,25 +10,31 @@ video_compressor.py の機能をテストする。
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from video_compressor import (
-    compress_video,
-    compress_if_needed,
-    verify_video_integrity,
-    get_file_size_mb,
-    calculate_target_bitrate,
-    CompressionResult,
+    DEFAULT_AUDIO_BITRATE_KBPS,
     DEFAULT_MAX_SIZE_MB,
+    FFPROBE_TIMEOUT_SECONDS,
+    MIN_VIDEO_BITRATE_KBPS,
+    SAFETY_MARGIN,
+    VP9_CRF,
+    VP9_VIDEO_BITRATE,
+    CompressionResult,
+    calculate_target_bitrate,
+    compress_if_needed,
+    compress_video,
+    get_file_size_mb,
+    verify_video_integrity,
 )
-from video_processor import find_ffmpeg
 
 
 # テスト用動画
@@ -92,9 +97,9 @@ class TestCalculateTargetBitrate:
 
     def test_minimum_bitrate_guarantee(self):
         """最低ビットレートが保証される"""
-        # 非常に長い動画、小さいサイズ → 最低500kbps保証
+        # 非常に長い動画、小さいサイズ → MIN_VIDEO_BITRATE_KBPS保証
         bitrate = calculate_target_bitrate(3600, 10)  # 1時間、10MB
-        assert bitrate >= 500
+        assert bitrate >= MIN_VIDEO_BITRATE_KBPS
 
     def test_short_video_high_bitrate(self):
         """短い動画は高いビットレートになる"""
@@ -142,7 +147,7 @@ class TestCompressVideoBackup:
             backup_path = Path(temp_dir) / "test_video_backup.mov"
 
             # 圧縮実行（サイズが小さいのでスキップされる）
-            result = compress_video(
+            compress_video(
                 str(test_file),
                 output_path=None,
                 max_size_mb=100,  # 大きいサイズ指定でスキップ
@@ -156,29 +161,30 @@ class TestCompressVideoIntegrity:
     """圧縮後のファイル整合性テスト"""
 
     def test_compressed_file_is_valid(self):
-        """圧縮後のファイルが正常であること"""
+        """圧縮後のファイルが正常であること（透過なしH.264）"""
         if not TEST_VIDEO_MOV.exists():
             pytest.skip("テスト動画が見つかりません")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_file = Path(temp_dir) / "compressed.mov"
 
-            # 別ファイルに出力（上書きではない）
+            # preserve_alpha=Falseで.mov形式を維持
             result = compress_video(
                 str(TEST_VIDEO_MOV),
                 output_path=str(output_file),
                 max_size_mb=0.5,  # 0.5MBに圧縮を試みる
+                preserve_alpha=False,
             )
 
             if result.success:
                 # 出力ファイルの整合性チェック
-                assert verify_video_integrity(str(output_file))
+                assert verify_video_integrity(result.output_path)
 
                 # ffprobeで詳細確認
                 ffprobe = shutil.which("ffprobe")
                 if ffprobe:
                     proc = subprocess.run(
-                        [ffprobe, "-v", "error", "-show_format", str(output_file)],
+                        [ffprobe, "-v", "error", "-show_format", result.output_path],
                         capture_output=True,
                         text=True,
                     )
@@ -186,7 +192,7 @@ class TestCompressVideoIntegrity:
                     assert "duration" in proc.stdout
 
     def test_movflags_faststart_applied(self):
-        """-movflags +faststart が適用されていること"""
+        """-movflags +faststart が適用されていること（透過なし）"""
         if not TEST_VIDEO_MOV.exists():
             pytest.skip("テスト動画が見つかりません")
 
@@ -197,20 +203,19 @@ class TestCompressVideoIntegrity:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_file = Path(temp_dir) / "compressed.mov"
 
+            # preserve_alpha=Falseで.mov形式を維持
             result = compress_video(
                 str(TEST_VIDEO_MOV),
                 output_path=str(output_file),
                 max_size_mb=0.5,
+                preserve_alpha=False,
             )
 
             if result.success:
                 # moov atomがファイル先頭近くにあることを確認
                 # ffprobeで format を取得し、moov atom の位置を確認
                 proc = subprocess.run(
-                    [
-                        ffprobe, "-v", "trace",
-                        "-show_format", str(output_file)
-                    ],
+                    [ffprobe, "-v", "trace", "-show_format", result.output_path],
                     capture_output=True,
                     text=True,
                 )
@@ -224,7 +229,7 @@ class TestCompressVideoWithRealFile:
     """実際のファイルを使った圧縮テスト"""
 
     def test_compress_to_smaller_size(self):
-        """ファイルを指定サイズ以下に圧縮できる（整合性重視）"""
+        """ファイルを指定サイズ以下に圧縮できる（透過なしH.264）"""
         if not TEST_VIDEO_MOV.exists():
             pytest.skip("テスト動画が見つかりません")
 
@@ -237,19 +242,21 @@ class TestCompressVideoWithRealFile:
             # テスト動画は約2MBなので、0.5MBに圧縮を試みる
             target_size = original_size * 0.25
 
+            # preserve_alpha=Falseで.mov形式を維持
             result = compress_video(
                 str(TEST_VIDEO_MOV),
                 output_path=str(output_file),
                 max_size_mb=target_size,
+                preserve_alpha=False,
             )
 
             # 圧縮が実行されたことを確認
             if result.success and result.compression_ratio != 1.0:
                 # 出力ファイルが存在する
-                assert output_file.exists()
+                assert Path(result.output_path).exists()
 
                 # ファイルが破損していないことが最重要
-                assert verify_video_integrity(str(output_file))
+                assert verify_video_integrity(result.output_path)
 
     def test_skip_if_already_small(self):
         """既に目標サイズ以下の場合はスキップ"""
@@ -281,9 +288,9 @@ class TestCompressIfNeeded:
             max_size_mb=100,
         )
 
-        assert hasattr(result, 'success')
-        assert hasattr(result, 'original_size_mb')
-        assert hasattr(result, 'compressed_size_mb')
+        assert hasattr(result, "success")
+        assert hasattr(result, "original_size_mb")
+        assert hasattr(result, "compressed_size_mb")
 
 
 class TestEdgeCases:
@@ -326,13 +333,11 @@ class TestCompressVideoErrorHandling:
             pytest.skip("テスト動画が見つかりません")
 
         # 負のサイズでも圧縮は実行される（ファイルが0より大きいため）
-        result = compress_video(
+        compress_video(
             str(TEST_VIDEO_MOV),
             max_size_mb=-100,
         )
-
-        # エラーなく処理される（圧縮される）
-        # 結果は実装依存
+        # エラーなく処理される（圧縮される）- 結果は実装依存
 
 
 class TestCalculateTargetBitrateEdgeCases:
@@ -346,18 +351,18 @@ class TestCalculateTargetBitrateEdgeCases:
 
     def test_zero_duration(self):
         """0秒の動画（ゼロ除算対策）"""
+        import contextlib
+
         # 0秒はゼロ除算の可能性
-        try:
-            bitrate = calculate_target_bitrate(0, 100)
+        with contextlib.suppress(ZeroDivisionError):
+            calculate_target_bitrate(0, 100)
             # 実装によってはエラーになるかもしれない
-        except ZeroDivisionError:
-            pass  # ゼロ除算は想定内
 
     def test_negative_max_size(self):
         """負のサイズ指定"""
         bitrate = calculate_target_bitrate(60, -100)
-        # 最低ビットレート(500)が保証される
-        assert bitrate >= 500
+        # 最低ビットレートが保証される
+        assert bitrate >= MIN_VIDEO_BITRATE_KBPS
 
 
 class TestVerifyVideoIntegrityEdgeCases:
@@ -374,9 +379,7 @@ class TestVerifyVideoIntegrityEdgeCases:
     @patch("video_compressor.find_ffmpeg", return_value="ffmpeg")
     def test_ffprobe_timeout(self, mock_find, mock_run):
         """ffprobeがタイムアウトした場合"""
-        mock_run.side_effect = subprocess.TimeoutExpired(
-            cmd=["ffprobe"], timeout=30
-        )
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["ffprobe"], timeout=30)
 
         if TEST_VIDEO_MOV.exists():
             result = verify_video_integrity(str(TEST_VIDEO_MOV))
@@ -484,3 +487,40 @@ class TestCompressionResultDataclass:
             if result_alpha.success and result_no_alpha.success:
                 # H.264の方が一般的に小さい
                 pass  # サイズ比較は入力によるので省略
+
+
+class TestCompressionConstants:
+    """圧縮関連の定数テスト"""
+
+    def test_default_max_size_mb(self):
+        """デフォルト最大ファイルサイズが正しい値であること"""
+        assert DEFAULT_MAX_SIZE_MB == 1023
+
+    def test_default_audio_bitrate_kbps(self):
+        """デフォルト音声ビットレートが正しい値であること"""
+        assert DEFAULT_AUDIO_BITRATE_KBPS == 128
+
+    def test_min_video_bitrate_kbps(self):
+        """最低映像ビットレートが正しい値であること"""
+        assert MIN_VIDEO_BITRATE_KBPS == 500
+
+    def test_safety_margin(self):
+        """安全マージンが正しい値であること"""
+        assert SAFETY_MARGIN == 0.95
+        assert 0 < SAFETY_MARGIN <= 1.0
+
+    def test_vp9_video_bitrate(self):
+        """VP9ビットレートが設定されていること"""
+        assert VP9_VIDEO_BITRATE == "2M"
+
+    def test_vp9_crf(self):
+        """VP9 CRFが正しい範囲であること"""
+        assert VP9_CRF == "35"
+        # CRFは0-63の範囲（文字列として格納）
+        crf_value = int(VP9_CRF)
+        assert 0 <= crf_value <= 63
+
+    def test_ffprobe_timeout_seconds(self):
+        """ffprobeタイムアウトが妥当な値であること"""
+        assert FFPROBE_TIMEOUT_SECONDS == 30
+        assert FFPROBE_TIMEOUT_SECONDS > 0

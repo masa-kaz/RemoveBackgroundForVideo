@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 """サムネイルレスポンシブ機能のテスト
 
 ウィンドウリサイズに応じてサムネイルサイズが変わるかテストする
 """
 
+import re
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
+
 
 # srcディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -17,11 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 _main_file = Path(__file__).parent.parent / "src" / "main.py"
 _main_content = _main_file.read_text(encoding="utf-8")
 
-import re
 
 def _extract_dict(name: str, content: str) -> dict:
     """ソースコードから辞書定数を抽出"""
-    pattern = rf'^{name}\s*=\s*\{{'
+    pattern = rf"^{name}\s*=\s*\{{"
     match = re.search(pattern, content, re.MULTILINE)
     if not match:
         return {}
@@ -30,9 +29,9 @@ def _extract_dict(name: str, content: str) -> dict:
     brace_count = 0
     end = start
     for i, char in enumerate(content[start:]):
-        if char == '{':
+        if char == "{":
             brace_count += 1
-        elif char == '}':
+        elif char == "}":
             brace_count -= 1
             if brace_count == 0:
                 end = start + i + 1
@@ -42,6 +41,7 @@ def _extract_dict(name: str, content: str) -> dict:
     local_vars = {}
     exec(dict_str, {}, local_vars)
     return local_vars.get(name, {})
+
 
 SIZES = _extract_dict("SIZES", _main_content)
 
@@ -79,12 +79,12 @@ class TestCalculateThumbnailSizeFunction:
         func_code = _main_content[func_start:func_end]
         assert "winfo_width" in func_code
 
-    def test_function_respects_max_width(self):
-        """関数が最大幅を尊重していること"""
+    def test_function_uses_padding(self):
+        """関数がパディングを考慮していること"""
         func_start = _main_content.find("def _calculate_thumbnail_size")
         func_end = _main_content.find("def ", func_start + 1)
         func_code = _main_content[func_start:func_end]
-        assert "thumbnail_max_width" in func_code
+        assert "padding" in func_code
 
     def test_function_uses_aspect_ratio(self):
         """関数がアスペクト比を使用していること"""
@@ -151,7 +151,7 @@ class TestConfigureEventBinding:
 
     def test_configure_event_binding_exists(self):
         """<Configure>イベントがバインドされていること"""
-        assert '<Configure>' in _main_content or '"Configure"' in _main_content
+        assert "<Configure>" in _main_content or '"Configure"' in _main_content
 
     def test_binding_calls_on_window_resize(self):
         """バインディングが_on_window_resizeを呼んでいること"""

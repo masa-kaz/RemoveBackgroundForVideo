@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Windows EXE E2Eテスト
 
 pywinautoを使用してビルドされたEXEファイルの一連の動作をテストする。
@@ -16,27 +15,23 @@ pywinautoを使用してビルドされたEXEファイルの一連の動作を�
 
 import argparse
 import os
+import subprocess
 import sys
 import time
-import subprocess
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 
 def check_dependencies():
     """必要なライブラリがインストールされているか確認"""
+    import importlib.util
+
     missing = []
-    try:
-        import pywinauto
-    except ImportError:
+    if importlib.util.find_spec("pywinauto") is None:
         missing.append("pywinauto")
-    try:
-        import pyautogui
-    except ImportError:
+    if importlib.util.find_spec("pyautogui") is None:
         missing.append("pyautogui")
-    try:
-        from PIL import Image
-    except ImportError:
+    if importlib.util.find_spec("PIL") is None:
         missing.append("Pillow")
 
     if missing:
@@ -48,10 +43,8 @@ def check_dependencies():
 check_dependencies()
 
 import pyautogui
-from pywinauto import Application, Desktop
+from pywinauto import Desktop
 from pywinauto.keyboard import send_keys
-from pywinauto.timings import wait_until
-from PIL import Image
 
 
 class E2ETestRunner:
@@ -69,7 +62,9 @@ class E2ETestRunner:
         self.test_results = []
 
         # 出力ファイルパス（入力と同じディレクトリに生成される）
-        self.expected_output_path = self.test_video_path.parent / f"{self.test_video_path.stem}_nobg.mov"
+        self.expected_output_path = (
+            self.test_video_path.parent / f"{self.test_video_path.stem}_nobg.mov"
+        )
 
     def log(self, message: str):
         """ログ出力（Windows環境でのエンコーディングエラーを回避）"""
@@ -78,7 +73,7 @@ class E2ETestRunner:
             print(f"[{timestamp}] {message}")
         except UnicodeEncodeError:
             # Windowsコンソールで日本語が出力できない場合
-            safe_message = message.encode('ascii', errors='replace').decode('ascii')
+            safe_message = message.encode("ascii", errors="replace").decode("ascii")
             print(f"[{timestamp}] {safe_message}")
 
     def take_screenshot(self, name: str) -> Path:
@@ -95,11 +90,7 @@ class E2ETestRunner:
     def record_result(self, step: str, success: bool, message: str = ""):
         """テスト結果を記録"""
         status = "PASS" if success else "FAIL"
-        self.test_results.append({
-            "step": step,
-            "success": success,
-            "message": message
-        })
+        self.test_results.append({"step": step, "success": success, "message": message})
         self.log(f"[{status}] {step}: {message}")
 
     def wait_for_window(self, timeout: int = 30) -> bool:
@@ -322,7 +313,9 @@ class E2ETestRunner:
                     ctrl_type = ctrl.element_info.control_type
                     ctrl_text = ctrl.window_text()
                     rect = ctrl.rectangle()
-                    self.log(f"  {ctrl_type}: '{ctrl_text}' at ({rect.left}, {rect.top}, {rect.right}, {rect.bottom})")
+                    self.log(
+                        f"  {ctrl_type}: '{ctrl_text}' at ({rect.left}, {rect.top}, {rect.right}, {rect.bottom})"
+                    )
                 except Exception:
                     pass
             self.log("=== End Controls Dump ===")
@@ -419,10 +412,10 @@ class E2ETestRunner:
                 # 30秒ごとにスクリーンショットとウィンドウフォーカス確認
                 if elapsed - last_screenshot_time >= 30:
                     # ウィンドウをフォアグラウンドに維持
-                    try:
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
                         self.main_window.set_focus()
-                    except Exception:
-                        pass
                     send_keys("{ESC}")  # スタートメニューなどを閉じる
                     time.sleep(0.3)
                     self.take_screenshot(f"05_processing_{elapsed}s")
@@ -436,7 +429,9 @@ class E2ETestRunner:
                         txt_content = txt.window_text()
                         if "完了" in txt_content or "ダウンロード" in txt_content:
                             self.take_screenshot("06_completed_in_window")
-                            self.record_result("Step3_Process", True, f"Processing completed in {elapsed}s")
+                            self.record_result(
+                                "Step3_Process", True, f"Processing completed in {elapsed}s"
+                            )
                             return True
                 except Exception:
                     pass
@@ -446,7 +441,12 @@ class E2ETestRunner:
                     dialogs = Desktop(backend="uia").windows()
                     for dlg in dialogs:
                         title = dlg.window_text()
-                        if "完了" in title or "Complete" in title or "Success" in title or "情報" in title:
+                        if (
+                            "完了" in title
+                            or "Complete" in title
+                            or "Success" in title
+                            or "情報" in title
+                        ):
                             self.take_screenshot("06_completed_dialog")
                             # OKボタンをクリック
                             try:
@@ -455,7 +455,9 @@ class E2ETestRunner:
                             except Exception:
                                 send_keys("{ENTER}")
                             time.sleep(1)
-                            self.record_result("Step3_Process", True, f"Processing completed in {elapsed}s")
+                            self.record_result(
+                                "Step3_Process", True, f"Processing completed in {elapsed}s"
+                            )
                             return True
                 except Exception as e:
                     self.log(f"Dialog check error: {e}")
@@ -465,7 +467,9 @@ class E2ETestRunner:
                     file_size = self.expected_output_path.stat().st_size
                     if file_size > 1000:  # 1KB以上なら完了とみなす
                         self.take_screenshot("06_processing_done")
-                        self.record_result("Step3_Process", True, f"Output file created: {file_size} bytes")
+                        self.record_result(
+                            "Step3_Process", True, f"Output file created: {file_size} bytes"
+                        )
                         return True
 
                 time.sleep(2)
@@ -485,17 +489,24 @@ class E2ETestRunner:
 
         try:
             if not self.expected_output_path.exists():
-                self.record_result("Step4_VerifyOutput", False, f"Output file not found: {self.expected_output_path}")
+                self.record_result(
+                    "Step4_VerifyOutput",
+                    False,
+                    f"Output file not found: {self.expected_output_path}",
+                )
                 return False
 
             file_size = self.expected_output_path.stat().st_size
 
             if file_size < 1000:
-                self.record_result("Step4_VerifyOutput", False, f"Output file too small: {file_size} bytes")
+                self.record_result(
+                    "Step4_VerifyOutput", False, f"Output file too small: {file_size} bytes"
+                )
                 return False
 
             # 出力ファイルをテスト結果ディレクトリにコピー
             import shutil
+
             output_copy = self.output_dir / self.expected_output_path.name
             shutil.copy2(self.expected_output_path, output_copy)
 
@@ -548,8 +559,8 @@ class E2ETestRunner:
 
         # プロセス名で強制終了
         try:
-            os.system('taskkill /F /IM BackgroundRemover_CPU.exe 2>nul')
-            os.system('taskkill /F /IM BackgroundRemover_GPU.exe 2>nul')
+            os.system("taskkill /F /IM BackgroundRemover_CPU.exe 2>nul")
+            os.system("taskkill /F /IM BackgroundRemover_GPU.exe 2>nul")
         except Exception:
             pass
 
@@ -577,11 +588,13 @@ class E2ETestRunner:
             else:
                 failed += 1
 
-        report_lines.extend([
-            "-" * 60,
-            f"Total: {passed + failed}, Passed: {passed}, Failed: {failed}",
-            "=" * 60,
-        ])
+        report_lines.extend(
+            [
+                "-" * 60,
+                f"Total: {passed + failed}, Passed: {passed}, Failed: {failed}",
+                "=" * 60,
+            ]
+        )
 
         report = "\n".join(report_lines)
 
@@ -632,28 +645,18 @@ class E2ETestRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="Windows EXE E2E Test")
+    parser.add_argument("--exe-path", required=True, help="Path to the EXE file to test")
     parser.add_argument(
-        "--exe-path",
-        required=True,
-        help="Path to the EXE file to test"
+        "--test-video", default="tests/fixtures/TestVideo.mp4", help="Path to test video file"
     )
     parser.add_argument(
-        "--test-video",
-        default="tests/fixtures/TestVideo.mp4",
-        help="Path to test video file"
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="test_output/e2e",
-        help="Directory to save test artifacts"
+        "--output-dir", default="test_output/e2e", help="Directory to save test artifacts"
     )
 
     args = parser.parse_args()
 
     runner = E2ETestRunner(
-        exe_path=args.exe_path,
-        test_video_path=args.test_video,
-        output_dir=args.output_dir
+        exe_path=args.exe_path, test_video_path=args.test_video, output_dir=args.output_dir
     )
 
     success = runner.run()

@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """動画処理ロジック"""
 
 import subprocess
 import tempfile
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
 
 import cv2
 import numpy as np
@@ -15,11 +14,12 @@ from PIL import Image
 from torchvision.transforms.functional import to_tensor
 
 from rvm_model import RVMModel
-from utils import get_output_path, is_supported_video, ensure_directory
+from utils import ensure_directory, get_output_path, is_supported_video
 
 
 class ProcessingCancelled(Exception):
     """処理がキャンセルされた場合の例外"""
+
     pass
 
 
@@ -30,6 +30,7 @@ MAX_FILE_SIZE_MB = 1023
 @dataclass
 class OutputParams:
     """出力パラメータを格納するデータクラス"""
+
     width: int
     height: int
     fps: float
@@ -92,7 +93,9 @@ def calculate_optimal_params(
     current_fps = fps
 
     # Step 1: 現在のパラメータで推定
-    estimated_size = estimate_prores_size_mb(current_width, current_height, current_fps, duration_sec)
+    estimated_size = estimate_prores_size_mb(
+        current_width, current_height, current_fps, duration_sec
+    )
 
     if estimated_size <= max_size_mb:
         return OutputParams(
@@ -108,7 +111,9 @@ def calculate_optimal_params(
     # Step 2: fps削減（60fps以上なら30fpsに）
     if current_fps > 30:
         current_fps = 30.0
-        estimated_size = estimate_prores_size_mb(current_width, current_height, current_fps, duration_sec)
+        estimated_size = estimate_prores_size_mb(
+            current_width, current_height, current_fps, duration_sec
+        )
         if estimated_size <= max_size_mb:
             return OutputParams(
                 width=current_width,
@@ -159,6 +164,7 @@ def calculate_optimal_params(
 @dataclass
 class VideoInfo:
     """動画情報を格納するデータクラス"""
+
     width: int
     height: int
     fps: float
@@ -167,7 +173,7 @@ class VideoInfo:
     has_audio: bool = False  # 音声の有無
 
 
-def get_video_info(video_path: str, ffmpeg_path: Optional[str] = None) -> VideoInfo:
+def get_video_info(video_path: str, ffmpeg_path: str | None = None) -> VideoInfo:
     """動画の情報を取得する
 
     Args:
@@ -206,7 +212,7 @@ def get_video_info(video_path: str, ffmpeg_path: Optional[str] = None) -> VideoI
         cap.release()
 
 
-def _check_audio_stream(video_path: str, ffmpeg_path: Optional[str] = None) -> bool:
+def _check_audio_stream(video_path: str, ffmpeg_path: str | None = None) -> bool:
     """動画に音声ストリームがあるか確認する
 
     Args:
@@ -224,10 +230,14 @@ def _check_audio_stream(video_path: str, ffmpeg_path: Optional[str] = None) -> b
         result = subprocess.run(
             [
                 ffprobe_path,
-                "-v", "error",
-                "-select_streams", "a",
-                "-show_entries", "stream=codec_type",
-                "-of", "csv=p=0",
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "csv=p=0",
                 video_path,
             ],
             capture_output=True,
@@ -273,8 +283,7 @@ def find_ffmpeg() -> str:
             return path_str
 
     raise RuntimeError(
-        "ffmpegが見つかりません。ffmpegをインストールするか、"
-        "ffmpegフォルダに配置してください。"
+        "ffmpegが見つかりません。ffmpegをインストールするか、ffmpegフォルダに配置してください。"
     )
 
 
@@ -284,7 +293,7 @@ class VideoProcessor:
     def __init__(
         self,
         model: RVMModel,
-        ffmpeg_path: Optional[str] = None,
+        ffmpeg_path: str | None = None,
     ):
         """プロセッサーを初期化する
 
@@ -327,9 +336,9 @@ class VideoProcessor:
     def process(
         self,
         input_path: str,
-        output_path: Optional[str] = None,
-        output_params: Optional[OutputParams] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        output_path: str | None = None,
+        output_params: OutputParams | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> str:
         """動画の背景を除去して透過MOVを出力する
 
@@ -403,7 +412,7 @@ class VideoProcessor:
         input_path: str,
         output_dir: Path,
         video_info: VideoInfo,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> None:
         """動画のフレームを処理する
 
@@ -445,10 +454,10 @@ class VideoProcessor:
                 tensor = to_tensor(pil_image)
 
                 # 背景除去
-                fgr, alpha = self.model.process_frame(tensor)
+                foreground, alpha_mask = self.model.process_frame(tensor)
 
                 # RGBA画像を生成
-                rgba = self._create_rgba_image(fgr, alpha)
+                rgba = self._create_rgba_image(foreground, alpha_mask)
 
                 # PNGとして保存
                 output_frame_path = output_dir / f"frame_{frame_idx:06d}.png"
@@ -463,32 +472,30 @@ class VideoProcessor:
         finally:
             cap.release()
 
-    def _create_rgba_image(
-        self, fgr: torch.Tensor, alpha: torch.Tensor
-    ) -> Image.Image:
+    def _create_rgba_image(self, foreground: torch.Tensor, alpha_mask: torch.Tensor) -> Image.Image:
         """前景とアルファマスクからRGBA画像を生成する
 
         Args:
-            fgr: 前景画像テンソル (3, H, W)
-            alpha: アルファマスク (1, H, W)
+            foreground: 前景画像テンソル (3, H, W)
+            alpha_mask: アルファマスク (1, H, W)
 
         Returns:
             Image.Image: RGBA画像
         """
-        # CPUに移動
-        fgr = fgr.cpu()
-        alpha = alpha.cpu()
+        # GPU上のテンソルをCPUに移動（numpy変換のため）
+        foreground = foreground.cpu()
+        alpha_mask = alpha_mask.cpu()
 
-        # 値を0-255の範囲にクランプ
-        fgr = torch.clamp(fgr, 0, 1)
-        alpha = torch.clamp(alpha, 0, 1)
+        # モデル出力が0-1範囲を超える場合があるためクランプ
+        foreground = torch.clamp(foreground, 0, 1)
+        alpha_mask = torch.clamp(alpha_mask, 0, 1)
 
-        # numpy配列に変換
-        fgr_np = (fgr.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-        alpha_np = (alpha.squeeze(0).numpy() * 255).astype(np.uint8)
+        # numpy配列に変換（0-255のuint8形式）
+        foreground_np = (foreground.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+        alpha_np = (alpha_mask.squeeze(0).numpy() * 255).astype(np.uint8)
 
         # RGBAに結合
-        rgba = np.dstack([fgr_np, alpha_np])
+        rgba = np.dstack([foreground_np, alpha_np])
 
         return Image.fromarray(rgba, mode="RGBA")
 
@@ -509,65 +516,13 @@ class VideoProcessor:
             output_params: 出力パラメータ（解像度、fps）
             has_audio: 音声を含めるかどうか
         """
-        input_pattern = str(frames_dir / "frame_%06d.png")
-
-        # スケールフィルタを構築（解像度調整が必要な場合）
-        vf_filters = []
-        if output_params.resolution_adjusted:
-            vf_filters.append(f"scale={output_params.width}:{output_params.height}")
-
-        if has_audio:
-            # 音声付きで出力
-            cmd = [
-                self.ffmpeg_path,
-                "-y",  # 上書き確認なし
-                "-framerate", str(output_params.original_fps),  # 入力のfps
-                "-i", input_pattern,
-                "-i", input_path,  # 元動画から音声を取得
-            ]
-
-            # ビデオフィルタを追加
-            if vf_filters:
-                cmd.extend(["-vf", ",".join(vf_filters)])
-
-            # 出力fpsを設定
-            cmd.extend(["-r", str(output_params.fps)])
-
-            cmd.extend([
-                "-c:v", "prores_ks",
-                "-profile:v", "4444",  # ProRes 4444
-                "-pix_fmt", "yuva444p10le",  # アルファチャンネル付き
-                "-q:v", "10",  # 品質（0-32、低いほど高品質）
-                "-c:a", "aac",  # 音声コーデック
-                "-b:a", "192k",  # 音声ビットレート
-                "-map", "0:v:0",  # 映像は最初の入力から
-                "-map", "1:a:0?",  # 音声は2番目の入力から（存在する場合）
-                "-shortest",  # 短い方に合わせる
-                output_path,
-            ])
-        else:
-            # 音声なしで出力
-            cmd = [
-                self.ffmpeg_path,
-                "-y",  # 上書き確認なし
-                "-framerate", str(output_params.original_fps),  # 入力のfps
-                "-i", input_pattern,
-            ]
-
-            # ビデオフィルタを追加
-            if vf_filters:
-                cmd.extend(["-vf", ",".join(vf_filters)])
-
-            # 出力fpsを設定
-            cmd.extend(["-r", str(output_params.fps)])
-
-            cmd.extend([
-                "-c:v", "prores_ks",
-                "-profile:v", "4444",  # ProRes 4444
-                "-pix_fmt", "yuva444p10le",  # アルファチャンネル付き
-                "-q:v", "10",  # 品質（0-32、低いほど高品質）
-                output_path,
-            ])
+        cmd = self._build_ffmpeg_command(
+            frames_dir=frames_dir,
+            input_path=input_path,
+            output_path=output_path,
+            output_params=output_params,
+            has_audio=has_audio,
+        )
 
         result = subprocess.run(
             cmd,
@@ -576,6 +531,81 @@ class VideoProcessor:
         )
 
         if result.returncode != 0:
-            raise RuntimeError(
-                f"ffmpegエラー: {result.stderr}"
+            raise RuntimeError(f"ffmpegエラー: {result.stderr}")
+
+    def _build_ffmpeg_command(
+        self,
+        frames_dir: Path,
+        input_path: str,
+        output_path: str,
+        output_params: OutputParams,
+        has_audio: bool,
+    ) -> list[str]:
+        """ffmpegコマンドを構築する
+
+        Args:
+            frames_dir: フレームが格納されたディレクトリ
+            input_path: 入力動画のパス（音声抽出用）
+            output_path: 出力ファイルパス
+            output_params: 出力パラメータ（解像度、fps）
+            has_audio: 音声を含めるかどうか
+
+        Returns:
+            list[str]: ffmpegコマンドのリスト
+        """
+        input_pattern = str(frames_dir / "frame_%06d.png")
+
+        # 基本コマンド（入力設定）
+        cmd = [
+            self.ffmpeg_path,
+            "-y",  # 上書き確認なし
+            "-framerate",
+            str(output_params.original_fps),
+            "-i",
+            input_pattern,
+        ]
+
+        # 音声入力を追加（音声ありの場合）
+        if has_audio:
+            cmd.extend(["-i", input_path])
+
+        # スケールフィルタ（解像度調整が必要な場合）
+        if output_params.resolution_adjusted:
+            cmd.extend(["-vf", f"scale={output_params.width}:{output_params.height}"])
+
+        # 出力fps
+        cmd.extend(["-r", str(output_params.fps)])
+
+        # ProRes 4444エンコード設定
+        # 品質値10は速度と品質のバランスを取った設定（0-32、低いほど高品質）
+        cmd.extend(
+            [
+                "-c:v",
+                "prores_ks",
+                "-profile:v",
+                "4444",
+                "-pix_fmt",
+                "yuva444p10le",  # アルファチャンネル付き10bit
+                "-q:v",
+                "10",
+            ]
+        )
+
+        # 音声設定（音声ありの場合）
+        if has_audio:
+            cmd.extend(
+                [
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-map",
+                    "0:v:0",  # 映像は最初の入力（フレーム画像）から
+                    "-map",
+                    "1:a:0?",  # 音声は2番目の入力（元動画）から（?は存在しない場合無視）
+                    "-shortest",  # 映像と音声の短い方に合わせる
+                ]
             )
+
+        cmd.append(output_path)
+        return cmd
