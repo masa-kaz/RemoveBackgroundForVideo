@@ -54,7 +54,9 @@
             "_on_error: エラー発生時の処理",
             "_on_cancelled: キャンセル時の処理",
             "_show_gpu_warning: GPU未検出警告の表示",
-            "_show_save_complete_dialog: 保存完了ダイアログ（3秒自動クローズ）"
+            "_show_save_complete_dialog: 保存完了ダイアログ（3秒自動クローズ）",
+            "_create_checkerboard: 市松模様（チェッカーボード）画像を生成",
+            "_extract_processed_thumbnail: 処理済み動画からサムネイル抽出（市松模様背景）"
           ]
         }
       ],
@@ -64,8 +66,8 @@
           "description": "アプリケーションのエントリーポイント（多重起動チェック付き）"
         },
         {
-          "name": "_show_already_running_message",
-          "description": "既に起動中であることをダイアログで表示"
+          "name": "_bring_existing_window_to_front",
+          "description": "既存のウィンドウを前面に出す（macOS/Windows対応）"
         }
       ]
     },
