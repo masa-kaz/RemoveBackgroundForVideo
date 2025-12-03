@@ -510,6 +510,9 @@ class BackgroundRemoverApp:
         except Exception:
             self.root.configure(bg=COLORS["bg"])
 
+        # ウィンドウアイコンを設定（タスクバー用）
+        self._set_window_icon()
+
         # 状態変数
         self.current_state = self.STATE_INITIAL
         self.input_path: str = ""
@@ -552,6 +555,26 @@ class BackgroundRemoverApp:
         if getattr(sys, "frozen", False):
             return Path(sys._MEIPASS)
         return Path(__file__).parent.parent
+
+    def _set_window_icon(self) -> None:
+        """ウィンドウアイコンを設定（タスクバー用）"""
+        asset_path = self._get_asset_path() / "assets"
+        try:
+            # Windows: .icoファイルを使用
+            ico_path = asset_path / "icon.ico"
+            if ico_path.exists():
+                self.root.iconbitmap(str(ico_path))
+                return
+
+            # フォールバック: .pngファイルを使用
+            png_path = asset_path / "icon.png"
+            if png_path.exists():
+                icon_image = tk.PhotoImage(file=str(png_path))
+                self.root.iconphoto(True, icon_image)
+                # 参照を保持（ガベージコレクション防止）
+                self._icon_image = icon_image
+        except Exception:
+            pass  # アイコン設定に失敗しても続行
 
     def _load_logo(self) -> ctk.CTkImage | None:
         """ロゴ画像を読み込む"""
