@@ -50,6 +50,7 @@ ffmpeg/ffmpeg
 
 # Output files
 *_nobg.mov
+*_nobg.webm
 
 # OS
 .DS_Store
