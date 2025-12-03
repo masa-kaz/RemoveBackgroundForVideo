@@ -10,27 +10,62 @@
       "description": "GUIアプリケーションのエントリーポイント",
       "classes": [
         {
+          "name": "SingleInstanceLock",
+          "description": "アプリの多重起動を防止するロッククラス",
+          "methods": [
+            "_is_process_running: 指定PIDのプロセス動作確認（Windows/Unix対応）",
+            "acquire: ロック取得（成功/既に起動中を返す）",
+            "release: ロック解放"
+          ]
+        },
+        {
+          "name": "CircularProgress",
+          "description": "円形プログレスバー（透明背景、白縁黒文字）",
+          "methods": [
+            "set: 進捗を設定 (0.0 ~ 1.0)",
+            "get: 現在の進捗を取得",
+            "reset: リセット"
+          ]
+        },
+        {
+          "name": "Toast",
+          "description": "トースト通知",
+          "methods": []
+        },
+        {
+          "name": "CustomDialog",
+          "description": "カスタムダイアログの基底クラス",
+          "methods": [
+            "add_button: ボタンを追加"
+          ]
+        },
+        {
           "name": "BackgroundRemoverApp",
-          "description": "メインアプリケーションクラス（Tkinter GUI）",
+          "description": "メインアプリケーションクラス（CustomTkinter GUI）",
           "methods": [
             "_setup_ui: UIコンポーネントの構築",
+            "_set_window_icon: タスクバーアイコン設定",
             "_select_input: 入力ファイル選択ダイアログ",
-            "_select_output: 出力先選択ダイアログ",
+            "_save_output_file: 出力ファイル保存",
             "_start_processing: 処理開始（別スレッド起動）",
             "_process_video: 動画処理の実行",
             "_on_progress: 進捗更新コールバック",
             "_on_complete: 処理完了時の処理",
             "_on_error: エラー発生時の処理",
             "_on_cancelled: キャンセル時の処理",
-            "_cancel_processing: 処理キャンセルの実行",
-            "_show_gpu_warning: GPU未検出警告の表示"
+            "_show_gpu_warning: GPU未検出警告の表示",
+            "_show_save_complete_dialog: 保存完了ダイアログ（3秒自動クローズ）"
           ]
         }
       ],
       "functions": [
         {
           "name": "main",
-          "description": "アプリケーションのエントリーポイント"
+          "description": "アプリケーションのエントリーポイント（多重起動チェック付き）"
+        },
+        {
+          "name": "_show_already_running_message",
+          "description": "既に起動中であることをダイアログで表示"
         }
       ]
     },
@@ -38,6 +73,12 @@
       "file": "src/video_processor.py",
       "description": "動画の読み込み・処理・出力ロジック",
       "classes": [
+        {
+          "name": "OutputParams",
+          "description": "出力パラメータを格納するデータクラス（ファイルサイズ最適化用）",
+          "fields": ["width", "height", "fps", "original_width", "original_height", "original_fps", "is_adjusted"],
+          "properties": ["resolution_adjusted", "fps_adjusted"]
+        },
         {
           "name": "VideoInfo",
           "description": "動画情報を格納するデータクラス",
@@ -53,13 +94,23 @@
           "methods": [
             "process: 動画全体の処理（入力→背景除去→出力）",
             "cancel: 処理のキャンセル要求",
+            "pause: 処理を一時停止",
+            "resume: 処理を再開",
             "_process_frames: フレームごとの処理（キャンセル確認付き）",
             "_create_rgba_image: RGBA画像の生成",
-            "_create_prores_video: ProRes 4444動画の生成（音声自動含む）"
+            "_create_prores_video: ProRes 4444動画の生成（音声自動含む、解像度/fps調整対応）"
           ]
         }
       ],
       "functions": [
+        {
+          "name": "estimate_prores_size_mb",
+          "description": "ProRes 4444の推定ファイルサイズを計算"
+        },
+        {
+          "name": "calculate_optimal_params",
+          "description": "1023MB以下に収まる最適なパラメータを計算"
+        },
         {
           "name": "get_video_info",
           "description": "動画のメタ情報を取得（音声有無を含む）"
@@ -72,6 +123,9 @@
           "name": "_check_audio_stream",
           "description": "動画に音声ストリームがあるか確認"
         }
+      ],
+      "constants": [
+        "MAX_FILE_SIZE_MB: ファイルサイズ上限（1023MB）"
       ]
     },
     {

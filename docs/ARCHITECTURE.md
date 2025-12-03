@@ -58,55 +58,52 @@ RemoveBackgroundForVideo/
 **役割**: GUIアプリケーションのエントリーポイント
 
 主要クラス:
+- `SingleInstanceLock`: 多重起動防止用ロッククラス
+- `CircularProgress`: 円形プログレスバー
+- `Toast`: トースト通知
+- `CustomDialog`: カスタムダイアログ基底クラス
 - `BackgroundRemoverApp`: メインアプリケーションクラス
 
 状態管理:
-- `STATE_IDLE`: 待機中
+- `STATE_INITIAL`: 初期状態（ファイル未選択）
+- `STATE_FILE_SELECTED`: ファイル選択済み
 - `STATE_PROCESSING`: 背景除去処理中
-- `STATE_CONVERTING`: WebM変換中
 - `STATE_COMPLETE`: 完了
 
 機能:
 - CustomTkinterベースのモダンなウィンドウ
+- ドラッグ＆ドロップ対応（tkinterdnd2）
 - ファイル選択ダイアログ
-- 進捗バー表示
+- 円形プログレスバー表示
 - マルチスレッド処理（UIフリーズ防止）
-- キャンセルボタンで処理中断可能
-- 自動WebM変換（背景除去後）
+- キャンセルボタンで処理中断可能（一時停止/再開対応）
+- 多重起動防止（ロックファイル方式）
+- タスクバーアイコン設定
+- 保存完了ダイアログ自動クローズ（3秒）
 
 ### src/video_processor.py
 **役割**: 動画の読み込み・処理・出力
 
 主要クラス/関数:
+- `OutputParams`: 出力パラメータを格納するデータクラス（ファイルサイズ最適化用）
 - `VideoProcessor`: 動画処理のメインクラス
 - `VideoInfo`: 動画情報を格納するデータクラス（音声有無を含む）
 - `ProcessingCancelled`: キャンセル時の例外クラス
+- `estimate_prores_size_mb()`: ProRes 4444の推定ファイルサイズを計算
+- `calculate_optimal_params()`: 1023MB以下に収まる最適なパラメータを計算
 - `get_video_info()`: 動画のメタ情報を取得
 - `find_ffmpeg()`: ffmpegの実行ファイルを検索
 - `_check_audio_stream()`: 動画に音声があるか確認
 
 処理フロー:
 1. 動画を読み込み（OpenCV）
-2. フレームごとにRVMで背景除去（キャンセル確認付き）
-3. RGBA画像としてPNG連番出力
-4. ffmpegでProRes 4444に変換（音声があれば自動的に含める）
-5. video_compressorでWebM (VP9)に変換
+2. 最適な出力パラメータを計算（1023MB上限）
+3. フレームごとにRVMで背景除去（キャンセル/一時停止確認付き）
+4. RGBA画像としてPNG連番出力
+5. ffmpegでProRes 4444に変換（音声があれば自動的に含める、解像度/fps調整対応）
 
-### src/video_compressor.py
-**役割**: WebM形式への変換と圧縮
-
-主要クラス/関数:
-- `CompressionResult`: 圧縮結果を格納するデータクラス
-- `compress_video()`: 動画をWebM (VP9)形式に変換
-- `compress_if_needed()`: サイズ制限を超える場合のみ圧縮
-- `verify_video_integrity()`: 動画ファイルの整合性チェック
-- `calculate_target_bitrate()`: 目標ビットレート計算
-
-特徴:
-- VP9コーデックで透過（アルファチャンネル）を保持
-- 高速エンコード設定（realtime、cpu-used=8）
-- 自動バックアップと復元機能
-- Canva対応のWebM出力
+定数:
+- `MAX_FILE_SIZE_MB = 1023`: ファイルサイズ上限
 
 ### src/rvm_model.py
 **役割**: RobustVideoMattingモデルの管理
@@ -146,6 +143,11 @@ RemoveBackgroundForVideo/
 │   └──────┬──────┘ │
 │          ▼        │
 │   ┌─────────────┐ │
+│   │最適パラメータ│ │
+│   │計算(1023MB) │ │
+│   └──────┬──────┘ │
+│          ▼        │
+│   ┌─────────────┐ │
 │   │ フレーム    │ │
 │   │ 抽出        │ │
 │   └──────┬──────┘ │
@@ -178,18 +180,12 @@ RemoveBackgroundForVideo/
 │   ┌─────────────┐ │
 │   │ ProRes 4444 │ │
 │   │ エンコード  │ │
+│   │(解像度/fps  │ │
+│   │ 調整対応)   │ │
 │   └─────────────┘ │
 └─────────┬─────────┘
           ▼
-┌───────────────────┐
-│ video_compressor  │
-│   ┌─────────────┐ │
-│   │ VP9 WebM    │ │
-│   │ 変換        │ │
-│   └─────────────┘ │
-└─────────┬─────────┘
-          ▼
-[出力動画 (WebM with alpha)]
+[出力動画 (MOV ProRes 4444 with alpha)]
 ```
 
 ---
@@ -213,6 +209,8 @@ RemoveBackgroundForVideo/
 - `opencv-python`: 動画読み込み
 - `numpy`: 数値計算
 - `Pillow`: 画像処理
+- `customtkinter`: モダンなTkinter GUI
+- `tkinterdnd2`: ドラッグ＆ドロップ対応
 
 ### 開発環境（追加）
 - `pytest`: テストフレームワーク

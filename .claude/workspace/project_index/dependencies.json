@@ -28,6 +28,16 @@
         "name": "Pillow",
         "version": ">=10.0.0",
         "description": "画像処理ライブラリ"
+      },
+      {
+        "name": "customtkinter",
+        "version": ">=5.0.0",
+        "description": "モダンなTkinterテーマ（CustomTkinter GUI）"
+      },
+      {
+        "name": "tkinterdnd2",
+        "version": ">=0.3.0",
+        "description": "ドラッグ＆ドロップ対応ライブラリ"
       }
     ]
   },
