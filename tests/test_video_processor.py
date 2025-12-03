@@ -762,9 +762,7 @@ class TestCalculateOptimalParams:
         assert params.fps == 30.0
 
         # 推定サイズが目標以下であること
-        estimated = estimate_prores_size_mb(
-            params.width, params.height, params.fps, 60.0
-        )
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 60.0)
         assert estimated <= self.TARGET_SIZE_MB
 
     def test_medium_video_fps_reduction_only(self):
@@ -785,9 +783,7 @@ class TestCalculateOptimalParams:
         assert params.fps >= 24.0  # 下限24fps
 
         # 推定サイズが目標以下であること
-        estimated = estimate_prores_size_mb(
-            params.width, params.height, params.fps, 120.0
-        )
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 120.0)
         assert estimated <= self.TARGET_SIZE_MB
 
     def test_long_video_fps_and_resolution_reduction(self):
@@ -810,9 +806,7 @@ class TestCalculateOptimalParams:
         assert params.fps >= 24.0
 
         # 推定サイズが目標以下であること
-        estimated = estimate_prores_size_mb(
-            params.width, params.height, params.fps, 469.83
-        )
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 469.83)
         assert estimated <= self.TARGET_SIZE_MB
 
     def test_4k_video_adjustment(self):
@@ -829,9 +823,7 @@ class TestCalculateOptimalParams:
         assert params.is_adjusted is True
 
         # 推定サイズが目標以下であること
-        estimated = estimate_prores_size_mb(
-            params.width, params.height, params.fps, 120.0
-        )
+        estimated = estimate_prores_size_mb(params.width, params.height, params.fps, 120.0)
         assert estimated <= self.TARGET_SIZE_MB
         assert estimated <= MAX_FILE_SIZE_MB  # 絶対に1GB以下
 
@@ -893,20 +885,18 @@ class TestCalculateOptimalParams:
     def test_always_under_1gb(self):
         """様々なケースで必ず1GB以下になること"""
         test_cases = [
-            (1920, 1080, 30.0, 60.0),    # 短い
-            (1920, 1080, 30.0, 300.0),   # 中程度
-            (1920, 1080, 30.0, 600.0),   # 長い
-            (1920, 1080, 60.0, 300.0),   # 高fps
-            (3840, 2160, 30.0, 120.0),   # 4K
-            (3840, 2160, 60.0, 180.0),   # 4K高fps
-            (1280, 720, 30.0, 1800.0),   # HD長時間
+            (1920, 1080, 30.0, 60.0),  # 短い
+            (1920, 1080, 30.0, 300.0),  # 中程度
+            (1920, 1080, 30.0, 600.0),  # 長い
+            (1920, 1080, 60.0, 300.0),  # 高fps
+            (3840, 2160, 30.0, 120.0),  # 4K
+            (3840, 2160, 60.0, 180.0),  # 4K高fps
+            (1280, 720, 30.0, 1800.0),  # HD長時間
         ]
 
         for width, height, fps, duration in test_cases:
             params = calculate_optimal_params(width, height, fps, duration)
-            estimated = estimate_prores_size_mb(
-                params.width, params.height, params.fps, duration
-            )
+            estimated = estimate_prores_size_mb(params.width, params.height, params.fps, duration)
 
             # 目標サイズ以下であること
             assert estimated <= self.TARGET_SIZE_MB, (

@@ -175,9 +175,7 @@ def calculate_optimal_params(
     # Step 4: 最終確認ループ（確実に目標以下になるまで）
     max_iterations = 10
     for _ in range(max_iterations):
-        estimated_size = estimate_prores_size_mb(
-            new_width, new_height, current_fps, duration_sec
-        )
+        estimated_size = estimate_prores_size_mb(new_width, new_height, current_fps, duration_sec)
 
         if estimated_size <= target_size_mb:
             break
