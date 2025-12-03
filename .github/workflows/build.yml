@@ -110,11 +110,24 @@ jobs:
             --collect-all "customtkinter" `
             run_app.py
 
-      - name: Upload Artifact
+      - name: Upload Artifact (ZIP)
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_Windows_GPU_${{ steps.timestamp.outputs.value }}
           path: dist/BackgroundRemover_GPU
+          retention-days: 90
+
+      - name: Build Installer with Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+        with:
+          path: installer/setup.iss
+          options: /O"dist"
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackgroundRemover_Installer_${{ steps.timestamp.outputs.value }}
+          path: dist/BackgroundRemover_Setup.exe
           retention-days: 90
 
   # =============================================================================
