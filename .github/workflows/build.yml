@@ -117,17 +117,17 @@ jobs:
           path: dist/BackgroundRemover_GPU
           retention-days: 90
 
-      - name: Build Installer with Inno Setup
+      - name: Build GPU Installer with Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
         with:
-          path: installer/setup.iss
+          path: installer/setup_gpu.iss
           options: /O"dist"
 
-      - name: Upload Installer Artifact
+      - name: Upload GPU Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BackgroundRemover_Installer_${{ steps.timestamp.outputs.value }}
-          path: dist/BackgroundRemover_Setup.exe
+          name: BackgroundRemover_GPU_Setup_${{ steps.timestamp.outputs.value }}
+          path: dist/BackgroundRemover_GPU_Setup.exe
           retention-days: 90
 
   # =============================================================================
@@ -218,11 +218,24 @@ jobs:
             --collect-all "customtkinter" `
             run_app.py
 
-      - name: Upload Artifact
+      - name: Upload Artifact (ZIP)
         uses: actions/upload-artifact@v4
         with:
           name: BackgroundRemover_Windows_CPU_${{ steps.timestamp.outputs.value }}
           path: dist/BackgroundRemover_CPU
+          retention-days: 90
+
+      - name: Build CPU Installer with Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+        with:
+          path: installer/setup_cpu.iss
+          options: /O"dist"
+
+      - name: Upload CPU Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackgroundRemover_CPU_Setup_${{ steps.timestamp.outputs.value }}
+          path: dist/BackgroundRemover_CPU_Setup.exe
           retention-days: 90
 
   # =============================================================================
