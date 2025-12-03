@@ -981,3 +981,64 @@ class TestEstimateProresSize:
         expected_audio_size = (AUDIO_BITRATE_KBPS * 1000 * duration) / 8 / 1024 / 1024
         assert abs(audio_size - expected_audio_size) < 0.1
         assert audio_size > 10  # 10MB以上
+
+    def test_audio_size_proportional_to_duration(self):
+        """音声サイズは動画の尺に比例すること"""
+        # 異なる長さの動画で音声サイズを計算
+        duration_60s = 60.0
+        duration_120s = 120.0
+        duration_300s = 300.0
+
+        # 各長さでの音声サイズを計算（映像部分を引いて音声のみを取得）
+        audio_60s = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration_60s, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration_60s, include_audio=False)
+
+        audio_120s = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration_120s, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration_120s, include_audio=False)
+
+        audio_300s = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration_300s, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration_300s, include_audio=False)
+
+        # 120秒は60秒の2倍
+        assert abs(audio_120s / audio_60s - 2.0) < 0.01
+
+        # 300秒は60秒の5倍
+        assert abs(audio_300s / audio_60s - 5.0) < 0.01
+
+        # 期待される音声サイズと一致することを確認
+        expected_audio_60s = (AUDIO_BITRATE_KBPS * 1000 * duration_60s) / 8 / 1024 / 1024
+        expected_audio_120s = (AUDIO_BITRATE_KBPS * 1000 * duration_120s) / 8 / 1024 / 1024
+        expected_audio_300s = (AUDIO_BITRATE_KBPS * 1000 * duration_300s) / 8 / 1024 / 1024
+
+        assert abs(audio_60s - expected_audio_60s) < 0.01
+        assert abs(audio_120s - expected_audio_120s) < 0.01
+        assert abs(audio_300s - expected_audio_300s) < 0.01
+
+    def test_audio_size_independent_of_resolution_and_fps(self):
+        """音声サイズは解像度やfpsに依存しないこと"""
+        duration = 60.0
+
+        # 異なる解像度・fpsで音声サイズを計算
+        audio_1080p_30fps = estimate_prores_size_mb(
+            1920, 1080, 30.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 30.0, duration, include_audio=False)
+
+        audio_720p_30fps = estimate_prores_size_mb(
+            1280, 720, 30.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(1280, 720, 30.0, duration, include_audio=False)
+
+        audio_1080p_60fps = estimate_prores_size_mb(
+            1920, 1080, 60.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(1920, 1080, 60.0, duration, include_audio=False)
+
+        audio_4k_24fps = estimate_prores_size_mb(
+            3840, 2160, 24.0, duration, include_audio=True
+        ) - estimate_prores_size_mb(3840, 2160, 24.0, duration, include_audio=False)
+
+        # すべて同じ音声サイズになるはず
+        assert abs(audio_1080p_30fps - audio_720p_30fps) < 0.001
+        assert abs(audio_1080p_30fps - audio_1080p_60fps) < 0.001
+        assert abs(audio_1080p_30fps - audio_4k_24fps) < 0.001
