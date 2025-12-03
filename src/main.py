@@ -1070,22 +1070,30 @@ class BackgroundRemoverApp:
         ).pack()
 
     def _update_ui_state(self) -> None:
-        """現在の状態に応じてUIを更新"""
-        # 全要素を非表示
-        self.drop_zone_frame.pack_forget()
-        self.thumbnail_frame.pack_forget()
-        self.main_button.pack_forget()
-        self.cancel_button.pack_forget()
-        self.link_frame.pack_forget()
-        self.select_another_link.pack_forget()
-        self.retry_link.pack_forget()
-        self.process_another_link.pack_forget()
-        self.progress_overlay.place_forget()
-        self.complete_label.pack_forget()
+        """現在の状態に応じてUIを更新（差分更新方式）"""
+        # 現在の表示状態を取得
+        drop_zone_visible = self.drop_zone_frame.winfo_ismapped()
+        thumbnail_visible = self.thumbnail_frame.winfo_ismapped()
 
+        # 状態に応じて必要な要素のみ更新
         if self.current_state == self.STATE_INITIAL:
-            # 初期状態：ドロップゾーン + グレーアウトのボタン（背景色グレー）
-            self.drop_zone_frame.pack(fill="both", expand=True)
+            # 初期状態：ドロップゾーン + グレーアウトのボタン
+            if thumbnail_visible:
+                self.thumbnail_frame.pack_forget()
+            if not drop_zone_visible:
+                self.drop_zone_frame.pack(fill="both", expand=True)
+
+            # ボタン・リンク類を非表示
+            self.main_button.pack_forget()
+            self.cancel_button.pack_forget()
+            self.link_frame.pack_forget()
+            self.select_another_link.pack_forget()
+            self.retry_link.pack_forget()
+            self.process_another_link.pack_forget()
+            self.progress_overlay.place_forget()
+            self.complete_label.pack_forget()
+
+            # メインボタンを設定
             self.main_button.configure(
                 text="🚀 背景を除去する",
                 state="disabled",
@@ -1095,36 +1103,85 @@ class BackgroundRemoverApp:
 
         elif self.current_state == self.STATE_FILE_SELECTED:
             # ファイル選択後
-            self.thumbnail_frame.pack(fill="both", expand=True)
+            if drop_zone_visible:
+                self.drop_zone_frame.pack_forget()
+            if not thumbnail_visible:
+                self.thumbnail_frame.pack(fill="both", expand=True)
+
+            # 不要な要素を非表示
+            self.cancel_button.pack_forget()
+            self.progress_overlay.place_forget()
+            self.complete_label.pack_forget()
+            self.retry_link.pack_forget()
+            self.process_another_link.pack_forget()
+
+            # メインボタンを設定
+            self.main_button.pack_forget()
             self.main_button.configure(
                 text="🚀 背景を除去する",
                 state="normal",
-                fg_color=COLORS["primary"],  # 緑に戻す
+                fg_color=COLORS["primary"],
             )
             self.main_button.pack(fill="x", pady=(0, 8))
+
+            # リンクを設定
+            self.link_frame.pack_forget()
+            self.select_another_link.pack_forget()
             self.link_frame.pack(fill="x", pady=(8, 0))
             self.select_another_link.pack(side="left", expand=True)
 
         elif self.current_state == self.STATE_PROCESSING:
             # 処理中
-            self.thumbnail_frame.pack(fill="both", expand=True)
+            if drop_zone_visible:
+                self.drop_zone_frame.pack_forget()
+            if not thumbnail_visible:
+                self.thumbnail_frame.pack(fill="both", expand=True)
+
+            # 不要な要素を非表示
+            self.main_button.pack_forget()
+            self.link_frame.pack_forget()
+            self.select_another_link.pack_forget()
+            self.retry_link.pack_forget()
+            self.process_another_link.pack_forget()
+            self.complete_label.pack_forget()
+
             # 円形プログレスをサムネイル上にオーバーレイ
             self.progress_overlay.place(relx=0.5, rely=0.35, anchor="center")
             self.cancel_button.pack(fill="x")
 
         elif self.current_state == self.STATE_COMPLETE:
             # 処理完了
-            self.thumbnail_frame.pack(fill="both", expand=True)
+            if drop_zone_visible:
+                self.drop_zone_frame.pack_forget()
+            if not thumbnail_visible:
+                self.thumbnail_frame.pack(fill="both", expand=True)
+
+            # 不要な要素を非表示
+            self.cancel_button.pack_forget()
+            self.progress_overlay.place_forget()
+            self.select_another_link.pack_forget()
+
+            # 完了ラベルとボタンを設定
+            self.complete_label.pack_forget()
             self.complete_label.pack(pady=(0, 16))
+            self.main_button.pack_forget()
             self.main_button.configure(
                 text="💾 ファイルを保存",
                 state="normal",
-                fg_color=COLORS["primary"],  # 緑に戻す
+                fg_color=COLORS["primary"],
             )
             self.main_button.pack(fill="x", pady=(0, 8))
+
+            # リンクを設定
+            self.link_frame.pack_forget()
+            self.retry_link.pack_forget()
+            self.process_another_link.pack_forget()
             self.link_frame.pack(fill="x", pady=(8, 0))
             self.retry_link.pack(side="left", expand=True)
             self.process_another_link.pack(side="left", expand=True)
+
+        # 再描画を確定
+        self.root.update_idletasks()
 
 
     def _on_drop(self, event) -> None:
